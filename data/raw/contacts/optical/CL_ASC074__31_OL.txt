@@ -1,0 +1,11 @@
+Target: ASC_074_31
+
+Observer: ASC074_Brisbane_GSOL
+Start Time (UTC)            Stop Time (UTC)               Duration (s)         
+03 Jul 2026 04:56:50.545    03 Jul 2026 05:02:09.203      318.65811964    
+03 Jul 2026 20:23:13.754    03 Jul 2026 20:28:43.348      329.59321076    
+
+
+Number of events : 2
+
+

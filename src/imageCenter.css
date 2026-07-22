@@ -1,0 +1,250 @@
+/* Mission Image Center styles.
+   Scoped under .ic* class names so nothing here can collide with or
+   override the existing dashboard stylesheet. */
+
+.icWrap { display: flex; flex-direction: column; gap: 18px; }
+
+.icEyebrow {
+  text-transform: uppercase; letter-spacing: .14em; font-size: 11px;
+  color: #7d8fb3; margin: 0 0 4px;
+}
+.icHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
+.icHead h2 { margin: 0 0 6px; font-size: 26px; color: #e8eefc; }
+.icSub { margin: 0; color: #8b9cbd; font-size: 13px; max-width: 62ch; }
+
+.icCounts { display: flex; gap: 10px; flex-wrap: wrap; }
+.icCounts > div {
+  background: rgba(18, 30, 54, .74); border: 1px solid rgba(120, 150, 220, .16);
+  border-radius: 12px; padding: 10px 16px; min-width: 104px;
+}
+.icCounts strong { display: block; font-size: 19px; color: #e8eefc; }
+.icCounts span { font-size: 11px; color: #7d8fb3; text-transform: uppercase; letter-spacing: .08em; }
+
+/* ---------------- toolbar / filters ---------------- */
+
+.icToolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.icSearch {
+  flex: 1 1 320px; display: flex; align-items: center; gap: 9px;
+  background: rgba(12, 22, 42, .9); border: 1px solid rgba(120, 150, 220, .18);
+  border-radius: 10px; padding: 9px 13px; color: #7d8fb3;
+}
+.icSearch input {
+  flex: 1; background: none; border: none; outline: none; color: #e8eefc; font-size: 13px;
+}
+
+.icFilters {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 12px;
+  background: rgba(14, 24, 44, .72); border: 1px solid rgba(120, 150, 220, .14);
+  border-radius: 12px; padding: 16px;
+}
+.icFilters label {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: #7d8fb3;
+}
+.icFilters select, .icFilters input {
+  background: rgba(8, 16, 32, .95); border: 1px solid rgba(120, 150, 220, .2);
+  border-radius: 8px; padding: 8px 10px; color: #e8eefc; font-size: 13px;
+  text-transform: none; letter-spacing: 0;
+}
+
+/* ---------------- buttons ---------------- */
+
+.icBtn {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  border-radius: 9px; padding: 8px 13px; font-size: 12.5px; font-weight: 600;
+  border: 1px solid transparent; cursor: pointer; transition: filter .15s, background .15s;
+}
+.icBtn:disabled { opacity: .45; cursor: not-allowed; }
+.icBtn:not(:disabled):hover { filter: brightness(1.16); }
+.icBtnSm { padding: 6px 10px; font-size: 11.5px; }
+.icBtnPrimary { background: linear-gradient(135deg, #2f6bff, #22d3ee); color: #04101f; }
+.icBtnGhost {
+  background: rgba(24, 38, 66, .82); border-color: rgba(120, 150, 220, .22); color: #cbd8f0;
+}
+
+.icSpin { animation: icspin 1s linear infinite; }
+@keyframes icspin { to { transform: rotate(360deg); } }
+
+/* ---------------- download menu ---------------- */
+
+.icDlWrap { position: relative; display: inline-block; }
+.icDlMenu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 168px;
+  background: #0e1a30; border: 1px solid rgba(120, 150, 220, .25);
+  border-radius: 10px; padding: 6px; box-shadow: 0 18px 40px rgba(0, 0, 0, .55);
+}
+.icDlMenu button {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  color: #cbd8f0; font-size: 12.5px; padding: 8px 10px; border-radius: 7px; cursor: pointer;
+}
+.icDlMenu button:hover { background: rgba(47, 107, 255, .2); color: #fff; }
+
+/* ---------------- status pills ---------------- */
+
+.icPill {
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; white-space: nowrap;
+}
+.icPillOk   { background: rgba(52, 211, 153, .16); color: #34d399; }
+.icPillIdle { background: rgba(125, 143, 179, .16); color: #8b9cbd; }
+.icPillBusy { background: rgba(251, 191, 36, .16); color: #fbbf24; }
+.icPillBad  { background: rgba(251, 92, 115, .16); color: #fb5c73; }
+
+/* ---------------- table ---------------- */
+
+.icTableWrap {
+  overflow-x: auto; border: 1px solid rgba(120, 150, 220, .14);
+  border-radius: 12px; background: rgba(12, 21, 40, .68);
+}
+.icTable { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1180px; }
+.icTable th {
+  position: sticky; top: 0; background: #101d36; color: #8b9cbd; text-align: left;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  padding: 11px 12px; border-bottom: 1px solid rgba(120, 150, 220, .18); white-space: nowrap;
+}
+.icTable td {
+  padding: 9px 12px; color: #cbd8f0; border-bottom: 1px solid rgba(120, 150, 220, .07);
+  white-space: nowrap;
+}
+.icTable tr:hover td { background: rgba(47, 107, 255, .07); }
+.icTable tr.icSelected td { background: rgba(47, 107, 255, .14); }
+
+.icIdBtn {
+  background: none; border: none; color: #22d3ee; font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; cursor: pointer; padding: 0; text-align: left;
+}
+.icIdBtn:hover { text-decoration: underline; }
+
+.icThumbSm {
+  width: 46px; height: 46px; object-fit: cover; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(120, 150, 220, .28);
+}
+
+.icPager {
+  display: flex; justify-content: space-between; align-items: center; gap: 14px;
+  color: #8b9cbd; font-size: 12.5px; flex-wrap: wrap;
+}
+.icPager > div { display: flex; gap: 8px; }
+
+/* ---------------- gallery ---------------- */
+
+.icGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 16px;
+}
+.icCard {
+  background: rgba(14, 24, 44, .84); border: 1px solid rgba(120, 150, 220, .15);
+  border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
+}
+.icCardImg { border: none; padding: 0; background: #06101f; cursor: pointer; display: block; }
+.icCardImg img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+.icCardBody { padding: 13px 14px 15px; display: flex; flex-direction: column; gap: 9px; }
+.icCardBody h4 { margin: 0; font-size: 14.5px; color: #e8eefc; }
+.icCardId {
+  margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: #6f82a6;
+  word-break: break-all;
+}
+.icCardMeta {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 11.5px; color: #8b9cbd;
+}
+.icCardFoot {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  border-top: 1px solid rgba(120, 150, 220, .1); padding-top: 10px; flex-wrap: wrap;
+}
+.icQuality { font-size: 11.5px; color: #8b9cbd; }
+.icQuality strong { color: #34d399; font-size: 13px; }
+.icCardActions { display: flex; gap: 6px; }
+
+.icEmpty {
+  text-align: center; padding: 62px 20px; color: #6f82a6;
+  border: 1px dashed rgba(120, 150, 220, .22); border-radius: 14px;
+}
+.icEmpty h3 { margin: 14px 0 6px; color: #cbd8f0; }
+.icEmpty p { margin: 0; font-size: 13px; }
+
+/* ---------------- detail ---------------- */
+
+.icModal {
+  position: fixed; inset: 0; background: rgba(4, 8, 18, .82); z-index: 90;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 34px 18px; overflow-y: auto; backdrop-filter: blur(3px);
+}
+.icModalInner { width: min(1180px, 100%); }
+
+.icDetail {
+  background: #0b1526; border: 1px solid rgba(120, 150, 220, .2);
+  border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 20px;
+}
+.icDetailHead {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; flex-wrap: wrap;
+}
+.icDetailHead h3 {
+  margin: 0 0 8px; font-family: ui-monospace, Menlo, monospace; font-size: 16px; color: #e8eefc;
+  word-break: break-all;
+}
+.icDetailActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.icDetailGrid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, 1fr); gap: 20px; }
+@media (max-width: 900px) { .icDetailGrid { grid-template-columns: 1fr; } }
+
+.icPreviewPane { background: #06101f; border-radius: 12px; overflow: hidden; align-self: start; }
+.icPreviewLarge { width: 100%; display: block; }
+.icPreviewEmpty {
+  aspect-ratio: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px; color: #55688c; text-align: center; padding: 20px;
+}
+.icPreviewEmpty p { margin: 0; font-weight: 700; color: #8b9cbd; }
+.icPreviewEmpty span { font-size: 12px; max-width: 26ch; }
+
+.icFacts { display: flex; flex-direction: column; gap: 2px; }
+.icFacts h4 {
+  margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+  color: #22d3ee;
+}
+.icFacts h4:first-child { margin-top: 0; }
+.icRow {
+  display: flex; justify-content: space-between; gap: 14px; padding: 5px 0;
+  border-bottom: 1px solid rgba(120, 150, 220, .07); font-size: 12.5px;
+}
+.icRow span { color: #8b9cbd; }
+.icRow strong { color: #e8eefc; font-weight: 600; text-align: right; word-break: break-word; }
+
+.icMapBlock h4, .icGmat h4 {
+  margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+  color: #22d3ee; display: flex; align-items: center; gap: 6px;
+}
+.icGmat pre {
+  margin: 0; background: #06101f; border: 1px solid rgba(120, 150, 220, .13);
+  border-radius: 10px; padding: 14px; overflow-x: auto;
+  font-size: 11.5px; color: #9fb2d4; line-height: 1.55;
+}
+
+/* ---------------- map ---------------- */
+
+.icMap {
+  width: 100%; border-radius: 12px; border: 1px solid rgba(120, 150, 220, .15); display: block;
+}
+.icMapEmpty {
+  padding: 40px; text-align: center; color: #55688c; font-size: 13px;
+  border: 1px dashed rgba(120, 150, 220, .2); border-radius: 12px;
+}
+.icGrat { stroke: rgba(120, 150, 220, .12); stroke-width: 1; }
+.icGratLabel { fill: #4c5f80; font-size: 9px; }
+.icLand { fill: rgba(52, 211, 153, .17); stroke: rgba(52, 211, 153, .42); stroke-width: .8; }
+.icTrack { fill: none; stroke: #22d3ee; stroke-width: 1.6; stroke-dasharray: 5 3; opacity: .85; }
+.icFootprint { fill: rgba(251, 191, 36, .34); stroke: #fbbf24; stroke-width: 1.6; }
+.icSat { fill: #fb5c73; }
+.icSatHalo { fill: rgba(251, 92, 115, .26); }
+.icLegend rect { fill: rgba(6, 14, 28, .84); stroke: rgba(120, 150, 220, .2); }
+.icLegend text { fill: #8b9cbd; font-size: 9.5px; }
+
+/* ---------------- misc ---------------- */
+
+.icMuted { color: #6f82a6; font-size: 13px; padding: 16px; text-align: center; }
+.icError {
+  color: #fb5c73; background: rgba(251, 92, 115, .1); border: 1px solid rgba(251, 92, 115, .28);
+  border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 0;
+}
+.icNotice {
+  color: #fbbf24; background: rgba(251, 191, 36, .09); border: 1px solid rgba(251, 191, 36, .26);
+  border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 0;
+}

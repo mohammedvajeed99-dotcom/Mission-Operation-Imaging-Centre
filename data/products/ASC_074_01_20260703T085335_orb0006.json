@@ -1,0 +1,141 @@
+{
+  "sceneId": "ASC_074_01_20260703T085335_orb0006",
+  "acquisition": {
+    "satellite": "ASC_074_01",
+    "simulatedTimestampUtc": "2026-07-03T08:53:35.226000",
+    "orbitNumber": 6,
+    "subSatelliteLat": -28.85740627182518,
+    "subSatelliteLon": 151.0166237026133,
+    "altitudeKm": 529.945350998948,
+    "headingDeg": 135.15279288826457,
+    "groundSpeedKmS": 6.8
+  },
+  "geometry": {
+    "gsdM": 8.412388392857142,
+    "swathKm": 68.91428571428571,
+    "alongTrackKm": 68.91428571428571,
+    "footprintLonLat": [
+      [
+        151.51752334266314,
+        -28.85811105555132
+      ],
+      [
+        151.01475095606497,
+        -29.29517541493074
+      ],
+      [
+        150.51678418299116,
+        -28.85577793330306
+      ],
+      [
+        151.0174362481465,
+        -28.418713538516975
+      ],
+      [
+        151.51752334266314,
+        -28.85811105555132
+      ]
+    ],
+    "bbox": [
+      150.51678418299116,
+      -29.29517541493074,
+      151.51752334266314,
+      -28.418713538516975
+    ],
+    "crs": "EPSG:4326",
+    "widthPx": 2048,
+    "heightPx": 2048
+  },
+  "sensor": {
+    "mtfSigmaPx": 0.6,
+    "alongTrackSmearPx": 1.2124975124378112,
+    "lineIntegrationMs": 1.5,
+    "readNoiseElectrons": 35.0,
+    "fullWellElectrons": 22000.0,
+    "bitDepth": 12,
+    "noiseApplied": true,
+    "estimatedSnr": 30.490817940690295,
+    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and GMAT telemetry."
+  },
+  "cloud": {
+    "cloudCoverPercent": 0.00012777723827388284,
+    "method": "spectral-brightness-flatness",
+    "thresholds": {
+      "brightness": 0.28,
+      "spread": 0.08
+    },
+    "caveat": "Heuristic test on surface reflectance, not a trained cloud mask. Bright arid surfaces can register as false positives."
+  },
+  "quality": {
+    "score": 78.2,
+    "grade": "good",
+    "factors": {
+      "dynamicRange": 21.5,
+      "unsaturated": 100.0,
+      "notUnderexposed": 99.9,
+      "sharpness": 75.8,
+      "cloudFree": 100.0
+    },
+    "weights": {
+      "dynamicRange": 0.2,
+      "unsaturated": 0.15,
+      "notUnderexposed": 0.15,
+      "sharpness": 0.25,
+      "cloudFree": 0.25
+    },
+    "measurements": {
+      "saturatedPixelPercent": 0.0,
+      "zeroPixelPercent": 0.029,
+      "usedDynamicRangePercent": 21.5,
+      "alongTrackSmearPx": 1.21,
+      "estimatedSnr": 30.5
+    }
+  },
+  "classification": {
+    "available": true,
+    "method": "spectral-index-thresholds",
+    "classFractionsPercent": {
+      "water": 0.53,
+      "vegetation": 94.39,
+      "bare": 5.06,
+      "urban": 0.02,
+      "cloud": 0.0
+    },
+    "dominantClass": "vegetation",
+    "indices": {
+      "meanNdvi": 0.5578,
+      "meanNdwi": -0.6115,
+      "meanBrightness": 0.042
+    },
+    "thresholds": {
+      "cloud": "brightness > 0.28 and spread < 0.08",
+      "water": "NDWI > 0.2",
+      "vegetation": "NDVI > 0.35",
+      "urban": "NDVI < 0.2 and brightness > 0.15 and spread < 0.12",
+      "bare": "remaining valid pixels"
+    },
+    "caveat": "Index-threshold classification, not a trained classifier. Thresholds are standard published values and are not tuned to Australian land cover specifically."
+  },
+  "provenance": {
+    "sourceCollection": "sentinel-2-l2a",
+    "sourceSceneId": "S2A_56JLP_20250704_0_L2A",
+    "sourceDatetime": "2025-07-04T00:04:58.896000+00:00",
+    "sourceCloudCoverPercent": 6e-05,
+    "sourcePlatform": "sentinel-2a",
+    "sourceNativeGsdM": 10.0,
+    "sourceBands": [
+      "Red",
+      "Green",
+      "Blue",
+      "Near Infrared"
+    ],
+    "sourceCrs": "EPSG:32756",
+    "stacEndpoint": "https://earth-search.aws.element84.com/v1",
+    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from GMAT telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+  },
+  "files": {
+    "geotiff": "ASC_074_01_20260703T085335_orb0006.tif",
+    "preview": "ASC_074_01_20260703T085335_orb0006.png",
+    "metadata": "ASC_074_01_20260703T085335_orb0006.json"
+  }
+}

@@ -1,0 +1,18 @@
+streamlit
+pandas
+openpyxl
+
+plotly
+numpy
+matplotlib
+flask
+flask-cors
+
+# Imaging workflow (v1.0): STAC discovery, windowed COG reads, reprojection,
+# footprint geometry, pushbroom simulation and GeoTIFF export.
+pystac-client
+rasterio
+pyproj
+shapely
+Pillow
+scikit-learn
