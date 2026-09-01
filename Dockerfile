@@ -26,11 +26,15 @@ RUN npm run build
 # ----------------------------------------------------------------- runtime
 FROM python:3.12-slim AS runtime
 
-# rasterio/pyproj need the GDAL/PROJ runtime libraries. Installed before the
-# Python deps so this layer stays cached across code changes.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libexpat1 libgdal32 libproj25 \
-    && rm -rf /var/lib/apt/lists/*
+# No system GDAL/PROJ install here on purpose: the rasterio and pyproj
+# wheels pip installs on Linux are manylinux wheels that bundle their own
+# GDAL/PROJ shared libraries (confirmed locally -- rasterio ships its own
+# gdal_data directory and linked GDAL build, independent of anything on the
+# host). A prior version of this Dockerfile apt-get installed a
+# version-pinned system libgdal package here, which broke the build the
+# moment the python:3.12-slim base image's Debian release moved and that
+# exact package name stopped existing -- removing it removes that fragility
+# entirely rather than chasing the base image's package names.
 
 WORKDIR /app
 
