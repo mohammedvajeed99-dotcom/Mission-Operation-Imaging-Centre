@@ -1,1 +1,36 @@
 node_modules
+
+# Access control: per-section codes and the token signing secret.
+# These must never be committed -- anyone with the codes file can open every
+# section, and anyone with the secret can forge access tokens.
+config/access_codes.json
+config/.access_secret
+
+# Binary side-cache of parsed processed workbooks (rebuilt automatically).
+data/**/.cache/
+
+# Local Python environments. These must never be committed: they are large,
+# thousands of files, platform-specific, and .venv-win in particular is
+# already broken (it points at a Python that is not installed).
+.venv/
+.venv-win/
+
+# Byte-caches.
+__pycache__/
+*.pyc
+
+# Full-resolution GeoTIFFs: ~16 MB each, ~230 MB total. They are excluded from
+# the deployment image too (see .dockerignore) and are regenerable on demand
+# from the Sentinel-2 archive, so committing them would permanently bloat the
+# repository for files nothing in the UI reads. Previews (.png), gallery
+# thumbnails (.thumb.jpg) and metadata (.json) ARE committed, because the
+# Image Gallery needs them to work on a deployment.
+data/image_center/*.tif
+data/missions/*/image_center/*.tif
+
+# Legacy scene products, reachable only via the locked-by-default legacy-tools
+# endpoints, which have no frontend caller.
+data/products/
+data/products2/
+
+.DS_Store

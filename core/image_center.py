@@ -63,9 +63,21 @@ MAX_DELIVERED_PX = 2048
 
 
 def _sat_number(satellite_name):
-    """Trailing index from a satellite name, e.g. ASC_074_17 -> 17."""
-    m = re.search(r"(\d+)\s*$", str(satellite_name))
-    return int(m.group(1)) if m else 0
+    """Trailing index from a satellite name, e.g. ASC_074_17 -> 17.
+
+    Some missions use a trailing letter instead of a numeric suffix (e.g.
+    ASC_074A/B/C for a 3-satellite constellation) -- fall back to the
+    letter's 1-indexed alphabet position (A=1, B=2, ...) so those satellites
+    still get distinct numbers instead of all collapsing to 0.
+    """
+    name = str(satellite_name)
+    m = re.search(r"(\d+)\s*$", name)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"([A-Za-z])\s*$", name)
+    if m:
+        return ord(m.group(1).upper()) - ord("A") + 1
+    return 0
 
 
 def derive_planes(state_df, satellites_per_plane=8):
@@ -326,6 +338,22 @@ class ProductRegistry:
         )
         return metadata
 
+    # Which product files are actually present for an id. A deployment can
+    # legitimately ship previews and metadata without the full-resolution
+    # GeoTIFFs (they are ~16 MB each; see DEPLOY.md), so the UI has to be told
+    # what it can offer rather than discovering the gap as a failed download.
+    ASSET_SUFFIXES = {
+        "geotiff": ".tif",
+        "png": ".png",
+        "thumbnail": ".thumb.jpg",
+        "reference": ".reference.jpg",
+        "metadata": ".json",
+    }
+
+    def assets(self, image_id):
+        return {name: self.path(image_id, suffix).exists()
+                for name, suffix in self.ASSET_SUFFIXES.items()}
+
     def all(self):
         out = []
         for p in sorted(self.dir.glob("*.json")):
@@ -348,6 +376,11 @@ class ProductRegistry:
                 "generatedTimestamp": meta.get("generatedTimestamp"),
                 "generationStatus": meta.get("generationStatus", GENERATED),
                 "downloadStatus": meta.get("downloadStatus", "Not Downloaded"),
+                # Usability of the frame, separate from whether it exists.
+                "qualityStatus": meta.get("qualityStatus")
+                    or (meta.get("validation") or {}).get("status"),
+                "qualityLabel": meta.get("qualityLabel")
+                    or (meta.get("validation") or {}).get("label"),
             }
         return out
 
@@ -366,6 +399,10 @@ def apply_registry(catalog, registry):
             status.get(iid, {}).get(field, default)
             for iid, default in zip(out["imageId"], out[field])
         ]
+    # Quality fields have no catalog-side default -- an ungenerated
+    # opportunity has no usability verdict yet.
+    for field in ("qualityStatus", "qualityLabel"):
+        out[field] = [status.get(iid, {}).get(field) for iid in out["imageId"]]
     return out
 
 

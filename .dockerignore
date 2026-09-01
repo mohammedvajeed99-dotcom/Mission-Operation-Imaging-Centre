@@ -1,0 +1,50 @@
+# Generated imagery is split by what each file is for, so every dashboard
+# section works on the deployment while the image stays a sane size:
+#
+#   .json         product metadata      -> shipped (drives the whole panel)
+#   .thumb.jpg    gallery tiles         -> shipped (98x smaller than PNG)
+#   .png          full preview          -> shipped (detail view and zoom)
+#   .reference.jpg Earth reference view -> shipped (Geospatial Validation panel)
+#   .tif          full-res GeoTIFF      -> EXCLUDED (16 MB each, 230 MB total)
+#
+# The GeoTIFFs are the only exclusion. They are 16 MB each, are not needed to
+# view or analyse anything in the UI, and are regenerable on demand from the
+# Sentinel-2 archive. The download menu shows GeoTIFF as unavailable with the
+# reason and the remedy, rather than offering it and failing.
+data/image_center/*.tif
+data/missions/*/image_center/*.tif
+
+# Legacy scene products: reachable only through the /api/scenes and
+# /api/products endpoints, which have no frontend caller and sit behind the
+# locked-by-default legacy-tools section.
+data/products/
+data/products2/
+
+# Binary side-caches of the parsed workbooks; rebuilt automatically on first use.
+data/**/.cache/
+
+# Secrets are supplied as environment variables in a deployment, never baked in.
+config/access_codes.json
+config/.access_secret
+
+# Built locally inside the image instead.
+node_modules/
+dist/
+
+# Local environments and tooling.
+.venv/
+.venv-win/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.claude/
+.DS_Store
+
+# The legacy Streamlit app is not part of this deployment.
+app.py
+
+# Local docs/artifacts not needed at runtime.
+*.zip
+sample constellation map.jpeg
+target.jpeg

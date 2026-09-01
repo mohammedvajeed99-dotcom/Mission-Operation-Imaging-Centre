@@ -77,7 +77,7 @@
   display: block; width: 100%; text-align: left; background: none; border: none;
   color: #cbd8f0; font-size: 12.5px; padding: 8px 10px; border-radius: 7px; cursor: pointer;
 }
-.icDlMenu button:hover { background: rgba(47, 107, 255, .2); color: #fff; }
+.icDlMenu button:not(:disabled):hover { background: rgba(47, 107, 255, .2); color: #fff; }
 
 /* ---------------- status pills ---------------- */
 
@@ -120,6 +120,228 @@
   border: 1px solid rgba(120, 150, 220, .28);
 }
 
+/* ------------------- product viewer / metadata panel ------------------- */
+
+.icHeadPills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.icPillWarn {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.icTag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 8.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.icTag-measured  { background: rgba(52, 211, 153, 0.14); color: #34d399; }
+.icTag-derived   { background: rgba(34, 211, 238, 0.14); color: #22d3ee; }
+.icTag-simulated { background: rgba(167, 139, 250, 0.16); color: #a78bfa; }
+.icTag-assumed   { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+
+.icValidation {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.07);
+}
+.icValidation-unusable {
+  border-color: rgba(251, 92, 115, 0.4);
+  background: rgba(251, 92, 115, 0.08);
+}
+.icValidation strong { display: block; margin-bottom: 6px; color: #fbbf24; }
+.icValidation-unusable strong { color: #fb5c73; }
+.icValidation ul { margin: 0; padding-left: 18px; color: #b9c6da; }
+.icValidation li { margin: 3px 0; line-height: 1.5; }
+.icValidation code {
+  color: #9fb3d1;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  margin-right: 4px;
+}
+
+.icPreviewFrame { position: relative; overflow: hidden; background: #06101f; }
+.icPreviewFrame .icPreviewLarge {
+  transform-origin: center center;
+  transition: transform 0.08s linear;
+  user-select: none;
+}
+.icViewerTools {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(8, 14, 26, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+.icViewerTools button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #b9c6da;
+  cursor: pointer;
+}
+.icViewerTools button:hover { color: #22d3ee; background: rgba(34, 211, 238, 0.12); }
+.icZoomLabel {
+  padding: 0 6px;
+  color: #7d8ba3;
+  font-size: 10.5px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.icFullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4, 8, 16, 0.94);
+}
+.icFullscreen .icPreviewFrame {
+  max-width: 96vw;
+  max-height: 92vh;
+  border-radius: 12px;
+}
+.icFullscreen .icPreviewLarge { max-height: 92vh; width: auto; }
+
+.icProvenance {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.02);
+}
+.icProvenance h4 { margin: 0 0 12px; font-size: 12.5px; }
+.icProvGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.icProvGrid > div {
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+.icProvGrid span {
+  display: block;
+  margin-bottom: 4px;
+  color: #22d3ee;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.icProvGrid p { margin: 0; color: #9fb3d1; font-size: 11.5px; line-height: 1.55; }
+.icProvNote {
+  margin: 12px 0 0;
+  color: #7d8ba3;
+  font-size: 11px;
+  line-height: 1.6;
+  font-style: italic;
+}
+
+.icResPick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 12px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(255, 255, 255, 0.03);
+  color: #9fb3d1;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.icResPick select {
+  border: none;
+  background: transparent;
+  color: #e6edf7;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ---------------------- batch generation queue ---------------------- */
+
+.icPickCol { width: 34px; text-align: center; }
+.icPickCol input { cursor: pointer; accent-color: #22d3ee; }
+
+.icBatch {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  background: rgba(34, 211, 238, 0.06);
+}
+.icBatchTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.icBatchBar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.icBatchFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22d3ee, #3b82f6);
+  transition: width 0.35s ease;
+}
+.icBatchNote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: #9fb3d1;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.icBatchResults {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.icBatchOk { color: #34d399; font-weight: 600; }
+.icBatchFail { color: #fb5c73; font-weight: 600; }
+.icBatchErr {
+  flex: 1 1 100%;
+  margin: 2px 0 0;
+  color: #fda4af;
+  font-size: 11px;
+}
+.icBatchErr code {
+  color: #9fb3d1;
+  font-family: "JetBrains Mono", monospace;
+}
+
 .icPager {
   display: flex; justify-content: space-between; align-items: center; gap: 14px;
   color: #8b9cbd; font-size: 12.5px; flex-wrap: wrap;
@@ -135,8 +357,24 @@
   background: rgba(14, 24, 44, .84); border: 1px solid rgba(120, 150, 220, .15);
   border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
 }
-.icCardImg { border: none; padding: 0; background: #06101f; cursor: pointer; display: block; }
+.icCardImg { position: relative; border: none; padding: 0; background: #06101f; cursor: pointer; display: block; }
 .icCardImg img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+.icSimBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(8, 14, 26, 0.82);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  color: #fbbf24;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: "JetBrains Mono", monospace;
+  pointer-events: none;
+}
+.icSimBadgeSm { top: 6px; right: 6px; padding: 2px 6px; font-size: 8px; }
 .icCardBody { padding: 13px 14px 15px; display: flex; flex-direction: column; gap: 9px; }
 .icCardBody h4 { margin: 0; font-size: 14.5px; color: #e8eefc; }
 .icCardId {
@@ -187,6 +425,7 @@
 @media (max-width: 900px) { .icDetailGrid { grid-template-columns: 1fr; } }
 
 .icPreviewPane { background: #06101f; border-radius: 12px; overflow: hidden; align-self: start; }
+.icPreviewFrame { position: relative; }
 .icPreviewLarge { width: 100%; display: block; }
 .icPreviewEmpty {
   aspect-ratio: 1; display: flex; flex-direction: column; align-items: center;
@@ -247,4 +486,91 @@
 .icNotice {
   color: #fbbf24; background: rgba(251, 191, 36, .09); border: 1px solid rgba(251, 191, 36, .26);
   border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 0;
+}
+
+/* A download format whose file was not shipped with this deployment. It stays
+   visible rather than being hidden, so the operator can see the product has
+   that representation and learn how to obtain it. */
+.icDlMenu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.icDlUnavail {
+  margin-left: 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warn, #d8a24a);
+}
+
+/* ---------------- Geospatial Validation panel ---------------- */
+
+.icGeoValidation {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  background: rgba(34, 211, 238, 0.03);
+}
+.icGeoValidation h4 {
+  margin: 0 0 8px; font-size: 12.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: #22d3ee; display: flex; align-items: center; gap: 6px;
+}
+.icGeoIntro {
+  margin: 0 0 14px; color: #9fb3d1; font-size: 11.5px; line-height: 1.6; max-width: 76ch;
+}
+
+.icGeoChecklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.icGeoCheckItem {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px; border-radius: 8px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+.icGeoCheckOk { color: #34d399; background: rgba(52, 211, 153, 0.06); border-color: rgba(52, 211, 153, 0.3); }
+.icGeoCheckFail { color: #fb7185; background: rgba(251, 113, 133, 0.06); border-color: rgba(251, 113, 133, 0.3); }
+
+.icGeoCompare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.icGeoCompareLabel {
+  margin: 0 0 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: #7d8ba3; text-align: center;
+}
+.icGeoCompareImg {
+  width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
+  border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.18); background: #06101f;
+}
+.icGeoCompareMissing {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; border: 1px dashed rgba(148, 163, 184, 0.25);
+  color: #7d8ba3; font-size: 11.5px; text-align: center; padding: 16px;
+}
+.icGeoCompareNote {
+  margin: 0 0 4px; color: #7d8ba3; font-size: 10.5px; line-height: 1.5; font-style: italic;
+}
+
+.icGeoLimitations {
+  margin-top: 14px; padding: 12px 14px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(148, 163, 184, 0.14);
+}
+.icGeoLimitations strong {
+  display: block; margin-bottom: 6px; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #fbbf24;
+}
+.icGeoLimitations ul { margin: 0; padding-left: 18px; }
+.icGeoLimitations li { color: #9fb3d1; font-size: 11px; line-height: 1.6; }
+
+.icSimBadgeStatic {
+  position: static;
+  display: inline-block;
+  margin-top: 14px;
+  pointer-events: auto;
 }

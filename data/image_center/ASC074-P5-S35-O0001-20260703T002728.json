@@ -1,0 +1,403 @@
+{
+  "index": 45,
+  "imageId": "ASC074-P5-S35-O0001-20260703T002728",
+  "satellite": "ASC_074_35",
+  "satelliteNumber": 35,
+  "plane": 5,
+  "orbit": 1,
+  "orbitPass": 1,
+  "captureDate": "2026-07-03",
+  "captureTimeUtc": "00:27:28",
+  "captureEpochUtc": "2026-07-03T00:27:28.817000",
+  "missionElapsedTime": "000:00:27:29",
+  "missionElapsedSeconds": 1648.817,
+  "latitude": -10.511575560050089,
+  "longitude": 141.2490686310195,
+  "altitudeKm": 542.9438566017752,
+  "cameraHeadingDeg": 142.40068845422513,
+  "cameraOrientation": "Nadir",
+  "groundFootprint": [
+    [
+      141.6912716587873,
+      -10.56786606135792
+    ],
+    [
+      141.1914525811144,
+      -10.946002570513823
+    ],
+    [
+      140.8072626807791,
+      -10.454974087454781
+    ],
+    [
+      141.30628758260718,
+      -10.076837566877403
+    ],
+    [
+      141.6912716587873,
+      -10.56786606135792
+    ]
+  ],
+  "bbox": [
+    140.8072626807791,
+    -10.946002570513823,
+    141.6912716587873,
+    -10.076837566877403
+  ],
+  "footprintAreaKm2": 4749.178775510203,
+  "swathWidthKm": 68.91428571428571,
+  "gsdM": 8.412388392857142,
+  "estimatedResolution": "8192 x 8192 px",
+  "widthPx": 8192,
+  "heightPx": 8192,
+  "estimatedSizeBytes": 536870912,
+  "deliveredResolution": "2048 x 2048 px",
+  "deliveredWidthPx": 2048,
+  "deliveredHeightPx": 2048,
+  "deliveredSizeBytes": 33554432,
+  "deliveredGsdM": 33.64955357142857,
+  "aoiName": "Queensland, Australia",
+  "australianState": "Queensland",
+  "missionAoi": "Brisbane, Australia",
+  "fromInterpolatedFix": false,
+  "imageQualityScore": 86.8,
+  "cloudCoverPercent": 4.244518280029297,
+  "generatedTimestamp": "2026-08-28T15:05:20.479314+00:00",
+  "generationStatus": "Generated",
+  "downloadStatus": "Not Downloaded",
+  "sceneId": "ASC074-P5-S35-O0001-20260703T002728",
+  "acquisition": {
+    "satellite": "ASC_074_35",
+    "simulatedTimestampUtc": "2026-07-03T00:27:28.817000",
+    "orbitNumber": 1,
+    "subSatelliteLat": -10.511575560050089,
+    "subSatelliteLon": 141.2490686310195,
+    "altitudeKm": 542.9438566017752,
+    "headingDeg": 142.40068845422513,
+    "groundSpeedKmS": 6.698174261996495
+  },
+  "geometry": {
+    "gsdM": 8.412388392857142,
+    "swathKm": 68.91428571428571,
+    "alongTrackKm": 68.91428571428571,
+    "footprintLonLat": [
+      [
+        141.6912716587873,
+        -10.56786606135792
+      ],
+      [
+        141.1914525811144,
+        -10.946002570513823
+      ],
+      [
+        140.8072626807791,
+        -10.454974087454781
+      ],
+      [
+        141.30628758260718,
+        -10.076837566877403
+      ],
+      [
+        141.6912716587873,
+        -10.56786606135792
+      ]
+    ],
+    "bbox": [
+      140.8072626807791,
+      -10.946002570513823,
+      141.6912716587873,
+      -10.076837566877403
+    ],
+    "crs": "EPSG:4326",
+    "widthPx": 2048,
+    "heightPx": 2048
+  },
+  "sensor": {
+    "mtfSigmaPx": 0.6,
+    "alongTrackSmearPx": 1.1943411221390765,
+    "lineIntegrationMs": 1.5,
+    "readNoiseElectrons": 35.0,
+    "fullWellElectrons": 22000.0,
+    "bitDepth": 12,
+    "noiseApplied": true,
+    "estimatedSnr": 59.5582340778876,
+    "atmosphere": {
+      "model": "Rayleigh path radiance + transmittance (simulated)",
+      "airMass": 1.0,
+      "viewAngleDeg": 0.0,
+      "perBand": {
+        "Red": {
+          "pathReflectance": 0.011,
+          "transmittance": 0.96
+        },
+        "Green": {
+          "pathReflectance": 0.021,
+          "transmittance": 0.93
+        },
+        "Blue": {
+          "pathReflectance": 0.034,
+          "transmittance": 0.9
+        },
+        "Near Infrared": {
+          "pathReflectance": 0.003,
+          "transmittance": 0.98
+        }
+      },
+      "provenance": "SIMULATED effect. Source imagery is Sentinel-2 L2A surface reflectance with the atmosphere removed; this stage re-applies a representative clear-sky atmosphere so the product approximates what an on-orbit sensor would observe. Values are representative, not a radiative-transfer computation, and are not measurements."
+    },
+    "noDataPixelPercent": 0.0,
+    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and GMAT telemetry. Pixels with no source imagery are reported in noDataPixelPercent and are excluded from every statistic; they are not filled with invented ground."
+  },
+  "cloud": {
+    "cloudCoverPercent": 4.244518280029297,
+    "method": "spectral-brightness-flatness",
+    "thresholds": {
+      "brightness": 0.28,
+      "spread": 0.08
+    },
+    "caveat": "Heuristic test on surface reflectance, not a trained cloud mask. Bright arid surfaces can register as false positives."
+  },
+  "quality": {
+    "score": 86.8,
+    "grade": "excellent",
+    "factors": {
+      "dynamicRange": 50.6,
+      "unsaturated": 98.8,
+      "notUnderexposed": 100.0,
+      "sharpness": 76.1,
+      "cloudFree": 95.8,
+      "dataComplete": 100.0
+    },
+    "weights": {
+      "dynamicRange": 0.15,
+      "unsaturated": 0.1,
+      "notUnderexposed": 0.1,
+      "sharpness": 0.2,
+      "cloudFree": 0.2,
+      "dataComplete": 0.25
+    },
+    "measurements": {
+      "saturatedPixelPercent": 0.234,
+      "zeroPixelPercent": 0.0,
+      "usedDynamicRangePercent": 50.6,
+      "alongTrackSmearPx": 1.19,
+      "estimatedSnr": 59.6,
+      "validDataPercent": 100.0
+    }
+  },
+  "validation": {
+    "status": "quality_limited",
+    "label": "Generated \u2014 Quality Limited",
+    "issues": [
+      {
+        "level": "quality_limited",
+        "check": "seam",
+        "detail": "Granule S2B_54LWP_20260630_0_L2A needed an extreme radiometric gain (1.6) in a visible band; a seam may remain"
+      },
+      {
+        "level": "quality_limited",
+        "check": "seam",
+        "detail": "Granule S2B_54LWN_20260630_0_L2A needed an extreme radiometric gain (1.6) in a visible band; a seam may remain"
+      },
+      {
+        "level": "quality_limited",
+        "check": "seam",
+        "detail": "Granule S2B_54LVP_20260630_0_L2A needed an extreme radiometric gain (1.6) in a visible band; a seam may remain"
+      }
+    ],
+    "measurements": {
+      "validDataPercent": 100.0,
+      "pureBlackPercent": 0.0,
+      "clippedWhitePercent": 0.0,
+      "cloudCoverPercent": 4.24
+    }
+  },
+  "classification": {
+    "available": true,
+    "method": "spectral-index-thresholds",
+    "classFractionsPercent": {
+      "water": 68.25,
+      "vegetation": 0.0,
+      "bare": 5.55,
+      "urban": 21.95,
+      "cloud": 4.24
+    },
+    "dominantClass": "water",
+    "indices": {
+      "meanNdvi": -0.0326,
+      "meanNdwi": 0.2002,
+      "meanBrightness": 0.2165
+    },
+    "thresholds": {
+      "cloud": "brightness > 0.28 and spread < 0.08",
+      "water": "NDWI > 0.2",
+      "vegetation": "NDVI > 0.35",
+      "urban": "NDVI < 0.2 and brightness > 0.15 and spread < 0.12",
+      "bare": "remaining valid pixels"
+    },
+    "caveat": "Index-threshold classification, not a trained classifier. Thresholds are standard published values and are not tuned to Australian land cover specifically."
+  },
+  "provenance": {
+    "sourceCollection": "sentinel-2-l2a",
+    "sourceSceneId": "S2C_54LVN_20260705_0_L2A",
+    "sourceDatetime": "2026-07-05T01:00:14.816000+00:00",
+    "sourceCloudCoverPercent": 17.185517,
+    "sourcePlatform": "sentinel-2c",
+    "sourceNativeGsdM": 10.0,
+    "sourceBands": [
+      "Red",
+      "Green",
+      "Blue",
+      "Near Infrared"
+    ],
+    "stacEndpoint": "https://earth-search.aws.element84.com/v1",
+    "mosaicContributors": [
+      {
+        "radiometricMatch": null,
+        "sceneId": "S2C_54LVN_20260705_0_L2A",
+        "datetime": "2026-07-05T01:00:14.816000+00:00",
+        "cloudCoverPercent": 17.185517,
+        "platform": "sentinel-2c",
+        "coverageContributed": 0.0335
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 43263,
+            "gain": 1.6,
+            "offset": 0.11628
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 43263,
+            "gain": 1.6,
+            "offset": 0.09878
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 43263,
+            "gain": 1.6,
+            "offset": 0.0858
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 43263,
+            "gain": 1.6,
+            "offset": 0.11856
+          }
+        ],
+        "sceneId": "S2B_54LWP_20260630_0_L2A",
+        "datetime": "2026-06-30T00:59:55.424000+00:00",
+        "cloudCoverPercent": 4.310072,
+        "platform": "sentinel-2b",
+        "coverageContributed": 0.7696
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 336060,
+            "gain": 1.6,
+            "offset": 0.11884
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 336060,
+            "gain": 1.3981,
+            "offset": 0.12337
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 336060,
+            "gain": 1.3893,
+            "offset": 0.11902
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 336060,
+            "gain": 1.6,
+            "offset": 0.11952
+          }
+        ],
+        "sceneId": "S2B_54LWN_20260630_0_L2A",
+        "datetime": "2026-06-30T01:00:09.745000+00:00",
+        "cloudCoverPercent": 6.01,
+        "platform": "sentinel-2b",
+        "coverageContributed": 0.002
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 515908,
+            "gain": 1.6,
+            "offset": 0.12012
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 515908,
+            "gain": 1.1945,
+            "offset": 0.14075
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 515908,
+            "gain": 1.0784,
+            "offset": 0.15344
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 515908,
+            "gain": 1.6,
+            "offset": 0.12032
+          }
+        ],
+        "sceneId": "S2B_54LVP_20260630_0_L2A",
+        "datetime": "2026-06-30T00:59:58.713000+00:00",
+        "cloudCoverPercent": 7.133364,
+        "platform": "sentinel-2b",
+        "coverageContributed": 0.1949
+      }
+    ],
+    "mosaicSceneCount": 4,
+    "validDataFraction": 1.0,
+    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from GMAT telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+  },
+  "files": {
+    "geotiff": "ASC074-P5-S35-O0001-20260703T002728.tif",
+    "preview": "ASC074-P5-S35-O0001-20260703T002728.png",
+    "metadata": "ASC074-P5-S35-O0001-20260703T002728.json"
+  },
+  "qualityStatus": "quality_limited",
+  "qualityLabel": "Generated \u2014 Quality Limited",
+  "qualityIssues": [
+    {
+      "level": "quality_limited",
+      "check": "seam",
+      "detail": "Granule S2B_54LWP_20260630_0_L2A needed an extreme radiometric gain (1.6) in a visible band; a seam may remain"
+    },
+    {
+      "level": "quality_limited",
+      "check": "seam",
+      "detail": "Granule S2B_54LWN_20260630_0_L2A needed an extreme radiometric gain (1.6) in a visible band; a seam may remain"
+    },
+    {
+      "level": "quality_limited",
+      "check": "seam",
+      "detail": "Granule S2B_54LVP_20260630_0_L2A needed an extreme radiometric gain (1.6) in a visible band; a seam may remain"
+    }
+  ]
+}

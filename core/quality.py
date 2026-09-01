@@ -83,6 +83,111 @@ def estimate_cloud_cover_scl(item, bbox, out_shape):
     }
 
 
+OK = "ok"
+QUALITY_LIMITED = "quality_limited"
+UNUSABLE = "unusable"
+
+
+def validate_product(dn, rgb, valid_mask, cloud, quality, contributors=None):
+    """Gate a generated product before it is presented as a successful observation.
+
+    A frame that is mostly cloud, mostly gap, clipped at either end of the
+    range, or visibly seamed is still a real output of the pipeline -- but it
+    is not a usable observation, and showing it as a clean success would
+    misrepresent the mission's imaging performance. Each check returns a
+    reason so the operator can see exactly why a product was downgraded.
+    """
+    checks = []
+
+    def fail(level, code, detail):
+        checks.append({"level": level, "check": code, "detail": detail})
+
+    arr = np.asarray(dn)
+    if arr.ndim != 3 or min(arr.shape[1:]) < 16:
+        fail(UNUSABLE, "dimensions", f"Raster shape {tuple(arr.shape)} is not a usable image")
+    if not np.isfinite(np.asarray(rgb, dtype="float32")).all():
+        fail(UNUSABLE, "corrupt", "Preview contains non-finite values")
+
+    valid_pct = 100.0 * float(np.asarray(valid_mask).mean()) if valid_mask is not None else 100.0
+    if valid_pct < 50.0:
+        fail(UNUSABLE, "coverage", f"Only {valid_pct:.1f}% of the frame is backed by source imagery")
+    elif valid_pct < 90.0:
+        fail(QUALITY_LIMITED, "coverage", f"{100.0 - valid_pct:.1f}% of the frame has no source imagery")
+
+    # Tone checks run on the delivered preview, over real pixels only.
+    prev = np.asarray(rgb)
+    sel = prev[np.asarray(valid_mask)] if valid_mask is not None and np.asarray(valid_mask).any() else prev.reshape(-1, prev.shape[-1])
+    if sel.size:
+        black_pct = 100.0 * float((sel.max(axis=-1) <= 2).mean())
+        white_pct = 100.0 * float((sel.min(axis=-1) >= 253).mean())
+        if black_pct > 5.0:
+            fail(QUALITY_LIMITED, "crushedShadows", f"{black_pct:.1f}% of pixels are effectively pure black")
+        if white_pct > 5.0:
+            fail(QUALITY_LIMITED, "clippedHighlights", f"{white_pct:.1f}% of pixels are clipped white")
+        # A frame with almost no tonal spread is not a usable observation.
+        if float(sel.std()) < 4.0:
+            fail(UNUSABLE, "noContrast", "Preview has almost no tonal variation")
+    else:
+        black_pct = white_pct = 0.0
+
+    cloud_pct = (cloud or {}).get("cloudCoverPercent")
+    if cloud_pct is not None:
+        if cloud_pct >= 80.0:
+            fail(UNUSABLE, "cloud", f"Cloud cover {cloud_pct:.0f}% leaves no usable ground")
+        elif cloud_pct >= 40.0:
+            fail(QUALITY_LIMITED, "cloud", f"Cloud cover {cloud_pct:.0f}% obscures much of the footprint")
+
+    score = (quality or {}).get("score")
+    if score is not None and score < 45.0:
+        fail(QUALITY_LIMITED, "qualityScore", f"Composite quality score {score:.0f}/100")
+
+    # Residual seam check: granules are radiometrically matched during
+    # mosaicking, so a large remaining gain means the join could not be
+    # reconciled and may still show.
+    #
+    # Only the visible bands (0-2) can produce a seam a viewer actually sees,
+    # so only those downgrade the product. A large near-infrared gain is worth
+    # recording for anyone working with the GeoTIFF's NIR band, but it does
+    # not make the delivered image unusable and must not be reported as if it
+    # did -- the preview is built from RGB alone.
+    VISIBLE_BANDS = (0, 1, 2)
+    for c in (contributors or []):
+        for band in (c.get("radiometricMatch") or []):
+            gain = band.get("gain")
+            if gain is None or not (gain <= 0.62 or gain >= 1.55):
+                continue
+            if band.get("band") in VISIBLE_BANDS:
+                fail(QUALITY_LIMITED, "seam",
+                     f"Granule {c.get('sceneId')} needed an extreme radiometric gain ({gain}) "
+                     f"in a visible band; a seam may remain")
+                break
+            fail("note", "seamNonVisible",
+                 f"Granule {c.get('sceneId')} needed an extreme gain ({gain}) in a non-visible "
+                 f"band (index {band.get('band')}); affects the GeoTIFF's infrared band only, "
+                 f"not the delivered preview")
+
+    # "note" entries are informational and never downgrade the product.
+    downgrades = [c for c in checks if c["level"] in (UNUSABLE, QUALITY_LIMITED)]
+    if any(c["level"] == UNUSABLE for c in downgrades):
+        status, label = UNUSABLE, "Unusable — Quality Constraints"
+    elif downgrades:
+        status, label = QUALITY_LIMITED, "Generated — Quality Limited"
+    else:
+        status, label = OK, "Generated"
+
+    return {
+        "status": status,
+        "label": label,
+        "issues": checks,
+        "measurements": {
+            "validDataPercent": round(valid_pct, 2),
+            "pureBlackPercent": round(black_pct, 3),
+            "clippedWhitePercent": round(white_pct, 3),
+            "cloudCoverPercent": round(cloud_pct, 2) if cloud_pct is not None else None,
+        },
+    }
+
+
 def assess_quality(dn, sensor_report, cloud, valid_mask=None):
     """Overall usability score for a generated scene.
 

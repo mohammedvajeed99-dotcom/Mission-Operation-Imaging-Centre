@@ -15,8 +15,13 @@ from pathlib import Path
 
 import numpy as np
 
+from core.footprint import validate_wgs84
 from core.imagery import ImageryUnavailable, find_source_scenes, read_footprint_mosaic
 from core.pushbroom import simulate, to_rgb
+from core.reference import build_reference_preview, reference_provenance
+from core.solar import solar_position
+from core.spectral import spectral_band_metadata
+from core.validation import compare_scenes
 
 BANDS = ("Red", "Green", "Blue", "Near Infrared")
 
@@ -67,7 +72,7 @@ def generate_product(
     `scene` is a row from core.footprint.scene_grid.
     """
     from core.classify import classify_scene
-    from core.quality import assess_quality, estimate_cloud_cover
+    from core.quality import assess_quality, estimate_cloud_cover, validate_product
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +84,8 @@ def generate_product(
     if rows < 1 or cols < 1:
         raise ImageryUnavailable(f"Scene {sid} has degenerate pixel dimensions")
 
+    coordinate_validation = validate_wgs84(scene["lat"], scene["lon"])
+
     items = find_source_scenes(scene["bbox"], scene["timestamp"], max_cloud=max_cloud)
     reflectance, provenance = read_footprint_mosaic(items, scene["bbox"], (rows, cols), bands=BANDS)
 
@@ -87,12 +94,16 @@ def generate_product(
     # and must be excluded from every statistic computed downstream.
     valid_mask = np.isfinite(reflectance).all(axis=0)
 
+    solar = solar_position(scene["timestamp"], scene["lat"], scene["lon"])
+
     dn, sensor_report = simulate(
         reflectance,
         ground_speed_km_s=ground_speed_km_s,
         gsd_m=scene["gsdM"],
         add_noise=add_noise,
         seed=seed,
+        band_names=BANDS,
+        view_angle_deg=float(scene.get("viewAngleDeg", 0.0) or 0.0),
     )
 
     cloud = estimate_cloud_cover(reflectance, BANDS)
@@ -101,13 +112,32 @@ def generate_product(
 
     tif_path = out_dir / f"{sid}.tif"
     png_path = out_dir / f"{sid}.png"
+    reference_path = out_dir / f"{sid}.reference.jpg"
     json_path = out_dir / f"{sid}.json"
 
     _write_geotiff(tif_path, dn, scene["bbox"], BANDS)
 
     from PIL import Image
 
-    Image.fromarray(to_rgb(dn, BANDS)).save(png_path)
+    rgb = to_rgb(dn, BANDS, valid_mask=valid_mask)
+    Image.fromarray(rgb).save(png_path)
+
+    # Real Earth reference: the same reflectance already fetched above,
+    # rendered WITHOUT the sensor simulation. See core/reference.py for why
+    # this -- not a second, different imagery source -- is the honest choice.
+    reference_rgb = build_reference_preview(reflectance, valid_mask, BANDS)
+    Image.fromarray(reference_rgb).save(reference_path, quality=92)
+    reference_meta = reference_provenance(provenance, cols, rows)
+
+    validation = validate_product(
+        dn, rgb, valid_mask, cloud, quality,
+        contributors=provenance.get("mosaicContributors"),
+    )
+
+    geospatial_validation = compare_scenes(
+        reflectance, classification, dn, sensor_report,
+        coordinate_validation, quality, validation, BANDS,
+    )
 
     ts = scene["timestamp"]
     metadata = {
@@ -131,11 +161,24 @@ def generate_product(
             "crs": "EPSG:4326",
             "widthPx": cols,
             "heightPx": rows,
+            "heightBasis": (
+                "This product's heightPx is computed from this specific observation's "
+                "real along-track pass distance divided by GSD (core.image_center.build_catalog), "
+                "then capped for delivery -- it is not the camera model's fixed nominal "
+                "frame-length constant (DEFAULT_CAMERA['Image Height (px)']), which is used "
+                "only for fleet-wide scene-count estimates, not for sizing any individual product."
+            ),
         },
         "sensor": sensor_report,
+        "solar": solar,
         "cloud": cloud,
         "quality": quality,
+        "validation": validation,
         "classification": classification,
+        "coordinateValidation": coordinate_validation,
+        "reference": reference_meta,
+        "geospatialValidation": geospatial_validation,
+        "spectral": spectral_band_metadata(BANDS),
         "provenance": {
             **provenance,
             "note": (
@@ -149,6 +192,7 @@ def generate_product(
         "files": {
             "geotiff": tif_path.name,
             "preview": png_path.name,
+            "reference": reference_path.name,
             "metadata": json_path.name,
         },
     }

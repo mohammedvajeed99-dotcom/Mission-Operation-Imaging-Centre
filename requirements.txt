@@ -16,3 +16,6 @@ pyproj
 shapely
 Pillow
 scikit-learn
+
+# Production WSGI server (the Flask dev server is not for serving others).
+waitress

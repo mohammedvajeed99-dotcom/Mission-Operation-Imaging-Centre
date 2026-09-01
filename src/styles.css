@@ -148,6 +148,28 @@ button {
   backdrop-filter: blur(14px);
 }
 
+.homeButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 5px 10px 5px 8px;
+  margin: -6px 0 -4px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.homeButton:hover {
+  color: var(--cyan);
+  border-color: var(--stroke);
+  background: rgba(34, 211, 238, 0.06);
+}
+
 .brand {
   display: flex;
   flex-direction: column;
@@ -315,6 +337,41 @@ button {
   display: grid;
   gap: 5px;
 }
+/* Nav row: the navigation button plus its lock indicator/toggle as a
+   sibling. They cannot nest -- a button inside a button is invalid. */
+.navRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.navRow > .navItem {
+  flex: 1;
+  min-width: 0;
+}
+.navRelock {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--green);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 0.16s, color 0.16s, background 0.16s, border-color 0.16s;
+}
+.navRow:hover .navRelock {
+  opacity: 1;
+}
+.navRelock:hover {
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
 .navItem {
   position: relative;
   display: flex;
@@ -467,6 +524,101 @@ button {
   box-shadow: 0 0 10px var(--sub);
 }
 
+/* Master-code control: one code that unlocks every section at once, for a
+   developer or reviewer who needs the whole dashboard rather than the
+   per-section codes handed out for restricted access. Amber distinguishes it
+   from the green "system OK" status and from ordinary nav locks. */
+.fullAccessBox {
+  margin: 0 0 18px;
+  padding: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fullAccessLabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.fullAccessRow {
+  display: flex;
+  gap: 6px;
+}
+.fullAccessRow input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(6, 9, 18, 0.6);
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 12px;
+}
+.fullAccessRow input:focus {
+  outline: none;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+.fullAccessRow button {
+  flex: none;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fullAccessRow button:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.22);
+}
+.fullAccessRow button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.fullAccessOk {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--green);
+}
+.fullAccessErr {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--red);
+}
+.fullAccessBoxOpen {
+  flex-direction: row;
+  align-items: center;
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 600;
+}
+.fullAccessBoxOpen > svg {
+  flex: none;
+}
+.fullAccessBoxOpen > span {
+  flex: 1;
+}
+.fullAccessLockAll {
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 8px;
+  padding: 5px 9px;
+  background: transparent;
+  color: var(--amber);
+  font-size: 11px;
+  cursor: pointer;
+}
+.fullAccessLockAll:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.12);
+}
+
 .sidebarStatus {
   margin-top: auto;
   display: flex;
@@ -585,6 +737,25 @@ h1 {
   display: block;
   margin-top: 3px;
   font-size: 14px;
+}
+.missionSelect {
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.missionSelect:hover,
+.missionSelect:focus {
+  border-color: var(--stroke-hi);
+  box-shadow: 0 12px 28px rgba(34, 130, 238, 0.2);
+  outline: none;
 }
 .iconButton {
   width: 46px;
@@ -806,6 +977,76 @@ h1 {
   color: var(--accent, var(--blue));
   background: color-mix(in srgb, var(--accent, var(--blue)) 16%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent, var(--blue)) 30%, transparent);
+}
+.infoPopoverWrap {
+  position: relative;
+  display: inline-flex;
+}
+.infoIconBtn {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--stroke);
+  color: var(--text-faint);
+  background: transparent;
+  cursor: help;
+  flex-shrink: 0;
+}
+.infoIconBtn:hover {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+.infoPopover {
+  position: absolute;
+  z-index: 40;
+  top: 22px;
+  left: 0;
+  width: 260px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0b1220;
+  border: 1px solid var(--stroke-hi);
+  box-shadow: 0 18px 42px rgba(4, 8, 20, 0.6);
+  font-size: 12px;
+  line-height: 1.5;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: var(--text);
+}
+.infoPopover strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--cyan);
+}
+.infoPopover p {
+  margin: 0 0 8px;
+  color: var(--text-dim);
+}
+.infoPopoverRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--stroke);
+  font-size: 11px;
+}
+.infoPopoverRow span:first-child {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.infoPopoverRow span:last-child {
+  text-align: right;
+  color: var(--text-dim);
+}
+.infoPopoverSig {
+  margin-top: 8px !important;
+  padding-top: 8px;
+  border-top: 1px solid var(--stroke);
+  font-style: italic;
 }
 .kpi > strong {
   display: block;
@@ -1277,6 +1518,8 @@ h1 {
 }
 table {
   width: 100%;
+  min-width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
 }
 th {
@@ -1333,6 +1576,38 @@ tbody tr:hover {
   color: #fda4af;
 }
 
+.dqList {
+  display: grid;
+  gap: 10px;
+}
+.dqRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.02);
+}
+.dqRow > svg { flex-shrink: 0; margin-top: 2px; }
+.dqRow strong { display: inline-block; margin-right: 8px; font-size: 13px; }
+.dqRow p { margin: 4px 0 0; color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
+.dqRow.dq-ok > svg { color: var(--green); }
+.dqRow.dq-warning > svg { color: var(--amber); }
+.dqRow.dq-missing > svg { color: var(--red); }
+.dqBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dqBadge.dq-ok { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.dqBadge.dq-warning { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+.dqBadge.dq-missing { background: rgba(251, 92, 115, 0.15); color: var(--red); }
+
 /* =========================== loading ============================= */
 
 .loadingScreen {
@@ -1346,6 +1621,22 @@ tbody tr:hover {
   letter-spacing: 0.05em;
 }
 .loadingScreen.error { color: #fda4af; }
+.loadingHint {
+  max-width: 460px;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.65;
+  text-align: center;
+}
+.loadingHint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cyan);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+}
 .loaderRing {
   position: relative;
   width: 64px;
@@ -1410,10 +1701,206 @@ tbody tr:hover {
 .methodNote summary:hover {
   color: var(--cyan);
 }
+.reportBtnRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ========================= access gate ========================= */
+
+.gatePanel {
+  display: grid;
+  place-items: center;
+  min-height: 340px;
+}
+.gateInner {
+  max-width: 460px;
+  padding: 20px 10px 26px;
+  text-align: center;
+}
+.gateIcon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+}
+.gateEyebrow {
+  margin: 0 0 4px;
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.gateInner h2 {
+  margin: 0 0 10px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 22px;
+}
+.gateSub {
+  margin: 0 0 20px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.gateForm {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.gateField {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: rgba(6, 10, 20, 0.6);
+  color: var(--text-faint);
+}
+.gateField input {
+  width: 210px;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  outline: none;
+}
+.gateField:focus-within {
+  border-color: var(--cyan);
+}
+.gateError {
+  margin: 16px 0 0;
+  padding: 9px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(251, 92, 115, 0.4);
+  background: rgba(251, 92, 115, 0.09);
+  color: #fda4af;
+  font-size: 12.5px;
+}
+.navLock {
+  margin-left: auto;
+  color: var(--text-faint);
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+.scWrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
+  gap: 20px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .scWrap { grid-template-columns: 1fr; }
+}
+.scSvg {
+  width: 100%;
+  height: auto;
+  background: radial-gradient(ellipse at center, rgba(34,211,238,0.05), transparent 70%);
+  border-radius: 12px;
+}
+.scLabel {
+  fill: var(--text-dim);
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+}
+.scLabelSm {
+  fill: var(--text-faint);
+  font-size: 9px;
+  font-family: "JetBrains Mono", monospace;
+}
+.scFacts {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.scFactsRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--stroke);
+  font-size: 12.5px;
+}
+.scFactsRow span { color: var(--text-faint); }
+.scFactsRow strong { color: var(--text); }
+.scNote {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.obsList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.obsList li {
+  position: relative;
+  padding: 10px 14px 10px 28px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--stroke);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.obsList li::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 15px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+}
 .methodList {
   display: grid;
   gap: 10px;
   padding: 2px 16px 16px;
+}
+.guideProse {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.guideProseRow {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--stroke);
+}
+.guideProseRow h4 {
+  margin: 0 0 6px;
+  color: var(--cyan);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.guideProseRow p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
 }
 .methodRow {
   display: grid;
@@ -1476,11 +1963,13 @@ tbody tr:hover {
   .sidebar { padding: 18px 10px; }
   .brand { align-items: center; }
   .brandSub,
+  .homeButton span,
   .navItem > span:not(.kBadge),
   .navGroupLabel,
   .kDot,
   .sidebarStatus div { display: none; }
   .brandLogo { max-width: 100%; }
+  .homeButton { align-self: center; }
   .navItem { justify-content: center; padding: 0; }
   .navItem.navK { padding: 0; gap: 0; }
   .kBadge { min-width: 34px; }
@@ -1530,4 +2019,653 @@ tbody tr:hover {
     transition-duration: 0.001ms !important;
   }
   .reveal { opacity: 1; transform: none; }
+}
+
+/* Additive Constellation Analytics Styles */
+.kpiGrid.five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.kpiGrid.six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1300px) {
+  .kpiGrid.five { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kpiGrid.six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .kpiGrid.five, .kpiGrid.six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.fontBold { font-weight: 600; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge.success {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+.badge.warning {
+  background: rgba(251, 92, 115, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(251, 92, 115, 0.3);
+}
+.badge.muted {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-faint);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+.rowWarning {
+  background: rgba(251, 92, 115, 0.06) !important;
+}
+.alertKpi {
+  border-color: rgba(251, 92, 115, 0.4) !important;
+}
+.alertText {
+  color: var(--red) !important;
+}
+.animControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.speedSelect {
+  background: var(--bg-2);
+  color: var(--text);
+  border: 1px solid var(--stroke);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+}
+.sliderWrap input[type="range"] {
+  height: 6px;
+  background: var(--bg-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* Aerospace Glassmorphic Banner */
+.analyticsHeaderBanner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 28px;
+  background: linear-gradient(135deg, rgba(15, 25, 48, 0.75), rgba(8, 16, 32, 0.85));
+  border: 1px solid var(--stroke-hi);
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  position: relative;
+  overflow: hidden;
+}
+
+.analyticsHeaderBanner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--cyan), var(--blue));
+}
+
+.bannerBrandIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.25), rgba(11, 17, 32, 0.8));
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--cyan);
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);
+}
+
+.bannerTextContent h2 {
+  margin: 4px 0 2px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.bannerTextContent p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.bannerBadgeRow {
+  display: flex;
+  gap: 8px;
+}
+
+.bannerBadge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.bannerBadge.cyan { background: rgba(34, 211, 238, 0.12); color: var(--cyan); border: 1px solid rgba(34, 211, 238, 0.25); }
+.bannerBadge.green { background: rgba(52, 211, 153, 0.12); color: var(--green); border: 1px solid rgba(52, 211, 153, 0.25); }
+.bannerBadge.violet { background: rgba(167, 139, 250, 0.12); color: var(--violet); border: 1px solid rgba(167, 139, 250, 0.25); }
+
+/* KPI Micro Badges & Main Value Layout */
+.kpiMainVal {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.kpiValBadge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(120, 160, 255, 0.08);
+  color: var(--text-dim);
+  border: 1px solid var(--stroke);
+}
+
+/* Gauge Grid & Circular Rings */
+.gaugeGrid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-around;
+  gap: 20px;
+  padding: 16px 0;
+}
+
+.gaugeCircleWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gaugeInnerContent {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.gaugeVal {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gaugeLabel {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Table Progress Bars & Text Utility */
+.progressCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progressBarTrack {
+  width: 100%;
+  height: 5px;
+  background: rgba(120, 160, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressBarFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+.textCyan { color: var(--cyan) !important; }
+.textGreen { color: var(--green) !important; }
+.textDim { color: var(--text-dim) !important; }
+
+
+
+/* An explanatory note placed inside a panel, under its chart/table -- for
+   context that belongs with the data rather than in a separate glossary
+   lookup (e.g. why some satellites show no eclipse bar). */
+.panelFootnote {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--stroke);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.panelFootnote strong { color: var(--text); }
+
+/* Mission-switch gate: a small modal over the topbar, rather than a full
+   contentGrid panel like AccessGate -- switching mission is a header-level
+   action, and the current view stays exactly as it was if the person
+   cancels. Reuses .gateIcon/.gateEyebrow/.gateSub/.gateField/.gateError from
+   AccessGate for visual consistency. */
+.missionGateOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(4, 6, 13, 0.65);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 96px;
+}
+.missionGatePanel {
+  width: min(420px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 28px 26px;
+  border: 1px solid var(--stroke-hi);
+  border-radius: 18px;
+  background: var(--panel-solid);
+  box-shadow: 0 30px 80px rgba(3, 6, 15, 0.6);
+}
+.missionGatePanel h3 {
+  margin: 2px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 18px;
+}
+.missionGatePanel .gateField {
+  width: 100%;
+}
+.missionGateActions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
+}
+.missionGateActions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* ============================= welcome ================================
+   First screen on a fresh page load (no URL hash yet) -- an about page
+   plus the mission picker, ahead of the sidebar/dashboard shell. Reuses
+   .missionGateOverlay/.missionGatePanel for the locked-mission code prompt
+   so it matches the header's mission switcher exactly. */
+.welcomeRoot {
+  position: relative;
+  min-height: 100vh;
+}
+.welcomeScreen {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px 80px;
+}
+/* Compact hero -- wordmark + one-line tagline + one short paragraph, not a
+   full-screen title card. Mission-ops tools lead with the product, not a
+   splash. */
+.welcomeHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  max-width: 600px;
+  margin-bottom: 40px;
+}
+.welcomeLogo {
+  width: 100%;
+  max-width: 160px;
+  height: auto;
+  mix-blend-mode: screen;
+  margin-bottom: 8px;
+}
+.welcomeWordmark {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.welcomeWordmark span {
+  color: var(--cyan);
+}
+.welcomeTagline {
+  margin: 10px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 27px;
+  font-weight: 600;
+  color: var(--text);
+}
+.welcomeLede {
+  margin: 12px 0 0;
+  max-width: 580px;
+  color: var(--text-dim);
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+/* -------------------------- mission profile cards ----------------------- */
+.welcomeMissions {
+  width: 100%;
+  max-width: 920px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+}
+.welcomeMissionsEmpty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+.missionProfileCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(20, 30, 50, 0.85), var(--panel-solid) 70%);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+.missionProfileCard:hover {
+  border-color: rgba(34, 211, 238, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(3, 6, 15, 0.45), 0 0 0 1px rgba(34, 211, 238, 0.06);
+}
+.mpHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mpEyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.mpName {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.mpStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.mpStatus i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.mpStatus.ready { color: var(--green); }
+.mpStatus.ready i { background: var(--green); box-shadow: 0 0 5px rgba(52, 211, 153, 0.6); }
+.mpStatus.locked { color: var(--amber); }
+.mpStatus.locked i { background: var(--amber); box-shadow: 0 0 5px rgba(251, 191, 36, 0.6); }
+
+.mpConfig {
+  margin: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cyan);
+}
+.mpConfig span {
+  margin-left: 8px;
+  color: var(--text-faint);
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.mpKpiRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 14px 0;
+  border-top: 1px solid var(--stroke);
+  border-bottom: 1px solid var(--stroke);
+}
+.mpKpi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 12px;
+  border-left: 1px solid var(--stroke);
+}
+.mpKpi:first-child { border-left: none; padding-left: 0; }
+.mpKpi strong {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+.mpKpi span {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.mpSpecRow {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.mpSpecRow div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mpSpecRow span {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mpSpecRow strong {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.mpCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--cyan);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.mpCta span {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.missionProfileCard:hover .mpCta span {
+  transform: translateX(3px);
+}
+
+@media (max-width: 640px) {
+  .welcomeScreen { padding: 40px 16px 60px; }
+  .mpKpiRow { grid-template-columns: repeat(3, 1fr); }
+  .mpKpi { padding: 0 8px; }
+}
+
+/* ------------------------- welcome satellite field ---------------------
+   Deliberately NOT position:fixed + negative z-index (that's how the
+   sitewide starfield/grid in Backdrop work, but a positioned ancestor or a
+   browser/extension quirk can suppress negative-stacked layers). Instead:
+   position:absolute inside .welcomeRoot (position:relative), painted
+   before .welcomeScreen in DOM order with both at the default z-index --
+   ordinary stacking order, the same mechanism every other element on the
+   page already relies on, so there is nothing unusual left to fail. */
+.welcomeSatField {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.9;
+}
+.welcomeConstMap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.bgStar {
+  fill: rgba(230, 240, 255, 0.85);
+  animation: bgStarTwinkle 6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 0.4s);
+}
+@keyframes bgStarTwinkle {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bgStar { animation: none; opacity: 0.65; }
+}
+.planetGlow {
+  filter: drop-shadow(0 0 10px rgba(120, 140, 200, 0.2));
+}
+.planetRing {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1.4;
+}
+.planetRim {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+}
+.sunCore {
+  fill: #eef6ff;
+  filter: drop-shadow(0 0 4px rgba(200, 220, 255, 0.7));
+}
+.welcomeSat {
+  position: absolute;
+  top: var(--top, 20%);
+  left: -80px;
+  opacity: 0;
+  color: var(--cyan);
+  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.65));
+  animation: satDrift var(--dur, 60s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes satDrift {
+  0% { transform: translate(0, 0) rotate(-6deg); opacity: 0; }
+  10% { opacity: 0.85; }
+  90% { opacity: 0.85; }
+  100% { transform: translate(calc(100vw + 140px), var(--rise, -20px)) rotate(10deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcomeSat { animation: none; opacity: 0.6; left: 8%; }
+}
+
+/* -------------------- access-level choice (welcome) -------------------
+   Shown after a mission is picked -- reuses .missionGateOverlay/
+   .missionGatePanel so it matches every other code gate in the app. */
+.accessLevelChoice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
+}
+.accessLevelBtn {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.accessLevelBtn:hover {
+  border-color: var(--stroke-hi);
+  background: rgba(34, 211, 238, 0.06);
+  transform: translateY(-1px);
+}
+.accessLevelBtn > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--amber);
+}
+.accessLevelBtn:last-child > svg {
+  color: var(--cyan);
+}
+.accessLevelBtnText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.accessLevelBtnLabel {
+  display: block;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+.accessLevelBtnSub {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.5;
 }

@@ -30,7 +30,7 @@ INK = "#172033"
 
 
 st.set_page_config(
-    page_title="Mission Operations Center",
+    page_title="Ansumi Orbital Hub",
     page_icon=":satellite:",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -537,7 +537,7 @@ with st.sidebar:
         f"""
 <div class="sidebar-brand">
   <div class="name">{escape(mission_name)}</div>
-  <div class="sub">Mission Operations Center</div>
+  <div class="sub">Ansumi Orbital Hub</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -578,7 +578,7 @@ st.markdown(
     f"""
 <div class="hero">
   <div class="hero-eyebrow">Configuration-driven GMAT analytics</div>
-  <div class="hero-title">{escape(mission_name)} Mission Operations Center</div>
+  <div class="hero-title">{escape(mission_name)} — Ansumi Orbital Hub</div>
   <div class="hero-copy">
     Live operational view for constellation state, communications windows, eclipse exposure,
     Australia observation coverage, payload duty cycle, and onboard data generation.

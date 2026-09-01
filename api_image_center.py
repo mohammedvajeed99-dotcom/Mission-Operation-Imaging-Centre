@@ -24,8 +24,11 @@ from pathlib import Path
 import pandas as pd
 from flask import Blueprint, jsonify, request, send_file
 
+from core.access_control import SECTIONS, unlocked_downloads, unlocked_sections
 from core.camera_model import build_camera_model
+from core.data_pipeline import read_processed_frame
 from core.config_loader import load_mission_configuration
+from core.missions import DEFAULT_MISSION, get_mission
 from core.image_center import (
     FAILED,
     GENERATED,
@@ -37,11 +40,43 @@ from core.image_center import (
 )
 
 BASE = Path(__file__).resolve().parent
-PROCESSED = BASE / "data" / "processed"
-IMAGE_PRODUCTS = BASE / "data" / "image_center"
 
 bp = Blueprint("image_center", __name__, url_prefix="/api/imagecenter")
-registry = ProductRegistry(IMAGE_PRODUCTS)
+
+_registries = {}
+
+
+def _registry(mission_id):
+    if mission_id not in _registries:
+        _registries[mission_id] = ProductRegistry(get_mission(mission_id)["image_center_dir"])
+    return _registries[mission_id]
+
+
+def _mission_id_from_request():
+    return request.args.get("mission") or DEFAULT_MISSION
+
+
+# Neither Image Center view touches /api/dashboard, so the whole blueprint is
+# gated at one chokepoint. Either Image Center code opens it: the catalog and
+# the gallery are two views onto the same product set, and the detail modal
+# (shared by both) hits the per-image routes.
+IC_SECTIONS = ("ic-catalog", "ic-gallery")
+
+
+@bp.before_request
+def _gate_image_center():
+    if request.method == "OPTIONS":  # never block the CORS preflight
+        return None
+    if request.path.endswith("/health"):
+        return None
+    if unlocked_sections(request) & set(IC_SECTIONS):
+        return None
+    return jsonify({
+        "ok": False,
+        "error": "Access code required",
+        "requiredSections": list(IC_SECTIONS),
+        "requiredLabels": [SECTIONS[s]["label"] for s in IC_SECTIONS],
+    }), 403
 
 
 # --------------------------------------------------------------------------
@@ -49,35 +84,34 @@ registry = ProductRegistry(IMAGE_PRODUCTS)
 # --------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
-def _config():
-    return load_mission_configuration(BASE)
+@lru_cache(maxsize=8)
+def _config(mission_id=DEFAULT_MISSION):
+    return load_mission_configuration(BASE, config_path=get_mission(mission_id)["config_path"])
 
 
-@lru_cache(maxsize=1)
-def _camera():
-    cfg = _config()
+@lru_cache(maxsize=8)
+def _camera(mission_id=DEFAULT_MISSION):
+    cfg = _config(mission_id)
     payload = cfg.get("payload", {})
     return build_camera_model(cfg["orbit"].get("Altitude", None),
                               payload if isinstance(payload, dict) else {})
 
 
-@lru_cache(maxsize=1)
-def _state():
-    path = PROCESSED / "Satellite_State_History.xlsx"
-    return pd.read_excel(path) if path.exists() else pd.DataFrame()
+@lru_cache(maxsize=8)
+def _state(mission_id=DEFAULT_MISSION):
+    return read_processed_frame(get_mission(mission_id)["processed_dir"] / "Satellite_State_History.xlsx")
 
 
-@lru_cache(maxsize=1)
-def _catalog():
+@lru_cache(maxsize=8)
+def _catalog(mission_id=DEFAULT_MISSION):
     """Full imaging opportunity catalog. Expensive once, then cached."""
-    cfg = _config()
-    return build_catalog(_state(), _camera(), cfg["mission"], cfg["constellation"])
+    cfg = _config(mission_id)
+    return build_catalog(_state(mission_id), _camera(mission_id), cfg["mission"], cfg["constellation"])
 
 
-def _catalog_live():
+def _catalog_live(mission_id):
     """Catalog with current generation status overlaid from the registry."""
-    return apply_registry(_catalog(), registry)
+    return apply_registry(_catalog(mission_id), _registry(mission_id))
 
 
 def reset_caches():
@@ -109,6 +143,12 @@ def _apply_filters(df, args):
             | out["aoiName"].str.contains(q, case=False, na=False)
             | out["australianState"].str.contains(q, case=False, na=False)
             | out["captureDate"].str.contains(q, case=False, na=False)
+            # Coordinates as text, so typing e.g. "-24.3" or "116.7" finds
+            # matching rows without needing the precise Min/Max range filters
+            # below. astype(str) rather than a numeric comparison because this
+            # is a substring match, the same as every other field here.
+            | out["latitude"].astype(str).str.contains(q, case=False, na=False)
+            | out["longitude"].astype(str).str.contains(q, case=False, na=False)
         )
         out = out[mask]
 
@@ -180,19 +220,21 @@ def _records(df, limit=None, offset=0):
 
 @bp.get("/health")
 def health():
-    cat = _catalog()
+    mission_id = _mission_id_from_request()
+    cat = _catalog(mission_id)
     return jsonify({
         "ok": True,
+        "mission": mission_id,
         "catalogSize": int(len(cat)),
-        "generated": len(registry.all()),
-        "productsDir": str(IMAGE_PRODUCTS),
+        "generated": len(_registry(mission_id).all()),
+        "productsDir": str(get_mission(mission_id)["image_center_dir"]),
     })
 
 
 @bp.get("/catalog")
 def catalog():
     """Paged imaging opportunity catalog with search and filters applied."""
-    df = _catalog_live()
+    df = _catalog_live(_mission_id_from_request())
     if df.empty:
         return jsonify({"total": 0, "count": 0, "offset": 0, "images": [], "filters": {}})
 
@@ -220,7 +262,7 @@ def catalog():
 @bp.get("/facets")
 def facets():
     """Distinct values for populating filter controls."""
-    df = _catalog_live()
+    df = _catalog_live(_mission_id_from_request())
     if df.empty:
         return jsonify({})
     return jsonify({
@@ -248,15 +290,19 @@ def facets():
 @bp.get("/image/<image_id>")
 def image_detail(image_id):
     """Full detail for one catalog entry, merged with product metadata if generated."""
-    df = _catalog_live()
+    mission_id = _mission_id_from_request()
+    df = _catalog_live(mission_id)
     row = df[df["imageId"] == image_id]
     if row.empty:
         return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
 
     detail = json.loads(row.iloc[[0]].to_json(orient="records"))[0]
-    product = registry.load(image_id)
+    product = _registry(mission_id).load(image_id)
     if product:
         detail["product"] = product
+    # Which product files this deployment can actually serve, so the download
+    # menu offers only what exists instead of failing on click.
+    detail["assets"] = _registry(mission_id).assets(image_id)
     detail["gmatRecord"] = {
         "source": "GMAT StateReport.txt -> data/processed/Satellite_State_History.xlsx",
         "satellite": detail["satellite"],
@@ -287,6 +333,8 @@ def generate(image_id):
     from core.imaging_summary import _ground_speed_km_s
     from core.products import generate_product
 
+    mission_id = _mission_id_from_request()
+    registry = _registry(mission_id)
     body = request.get_json(silent=True) or {}
     regenerate = bool(body.get("regenerate", False))
 
@@ -294,13 +342,13 @@ def generate(image_id):
     if existing and not regenerate:
         return jsonify({"ok": True, "cached": True, "image": existing})
 
-    df = _catalog()
+    df = _catalog(mission_id)
     row = df[df["imageId"] == image_id]
     if row.empty:
         return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
     entry = row.iloc[0].to_dict()
 
-    state = _state()
+    state = _state(mission_id)
     sat_rows = state[state["Satellite Name"].astype(str) == entry["satellite"]].copy()
     sat_rows["Timestamp"] = pd.to_datetime(sat_rows["Timestamp"], errors="coerce")
     for col in ("Latitude", "Longitude"):
@@ -325,10 +373,22 @@ def generate(image_id):
         "bbox": tuple(entry["bbox"]),
     }
 
+    image_products = get_mission(mission_id)["image_center_dir"]
+    # Delivered raster size is the dominant cost of a generation: the source
+    # window is read at whatever overview level feeds this resolution, so the
+    # bytes transferred scale with its square. 2048 stays the default so
+    # quality is unchanged unless the caller asks for a faster product.
+    try:
+        max_pixels = int(body.get("maxPixels") or 2048)
+    except (TypeError, ValueError):
+        max_pixels = 2048
+    max_pixels = max(256, min(max_pixels, 2048))
+
     try:
         product = generate_product(
             scene,
-            IMAGE_PRODUCTS,
+            image_products,
+            max_pixels=max_pixels,
             ground_speed_km_s=speed,
             max_cloud=float(body.get("maxCloud", 20.0)),
             add_noise=bool(body.get("addNoise", True)),
@@ -345,9 +405,9 @@ def generate(image_id):
     # generate_product names files by its own scene id; rename onto the image ID
     # so the registry, the catalog and the download routes all agree.
     old_id = product["sceneId"]
-    for suffix in (".tif", ".png", ".json"):
-        src = IMAGE_PRODUCTS / f"{old_id}{suffix}"
-        dst = IMAGE_PRODUCTS / f"{image_id}{suffix}"
+    for suffix in (".tif", ".png", ".reference.jpg", ".json"):
+        src = image_products / f"{old_id}{suffix}"
+        dst = image_products / f"{image_id}{suffix}"
         if src.exists() and src != dst:
             src.replace(dst)
 
@@ -357,10 +417,16 @@ def generate(image_id):
         "imageId": image_id,
         "sceneId": image_id,
         "generationStatus": GENERATED,
+        # Lifecycle state (above) and usability (below) are deliberately
+        # separate: the product exists and is downloadable either way, but a
+        # cloudy or gap-ridden frame must not be presented as a clean success.
+        "qualityStatus": (product.get("validation") or {}).get("status", "ok"),
+        "qualityLabel": (product.get("validation") or {}).get("label", "Generated"),
+        "qualityIssues": (product.get("validation") or {}).get("issues", []),
         "generatedTimestamp": utc_now_iso(),
         "downloadStatus": "Not Downloaded",
         "files": {"geotiff": f"{image_id}.tif", "preview": f"{image_id}.png",
-                  "metadata": f"{image_id}.json"},
+                  "reference": f"{image_id}.reference.jpg", "metadata": f"{image_id}.json"},
         "imageQualityScore": (product.get("quality") or {}).get("score"),
         "cloudCoverPercent": (product.get("cloud") or {}).get("cloudCoverPercent"),
     }
@@ -371,18 +437,24 @@ def generate(image_id):
 @bp.get("/generated")
 def generated():
     """Gallery listing: every generated image, newest capture first."""
+    registry = _registry(_mission_id_from_request())
     items = registry.all()
     items = [i for i in items if i.get("generationStatus") == GENERATED]
     items.sort(key=lambda m: m.get("captureEpochUtc", ""), reverse=True)
+    for item in items:
+        iid = item.get("imageId") or item.get("sceneId")
+        if iid:
+            item["assets"] = registry.assets(iid)
     return jsonify({"count": len(items), "images": items})
 
 
 @bp.delete("/image/<image_id>")
 def delete_image(image_id):
     """Remove a generated product, returning the entry to Not Generated."""
+    image_products = get_mission(_mission_id_from_request())["image_center_dir"]
     removed = []
-    for suffix in (".tif", ".png", ".jpg", ".json"):
-        p = IMAGE_PRODUCTS / f"{image_id}{suffix}"
+    for suffix in (".tif", ".png", ".jpg", THUMB_SUFFIX, ".json"):
+        p = image_products / f"{image_id}{suffix}"
         if p.exists():
             p.unlink()
             removed.append(p.name)
@@ -396,8 +468,8 @@ def delete_image(image_id):
 # --------------------------------------------------------------------------
 
 
-def _require_product(image_id):
-    meta = registry.load(image_id)
+def _require_product(mission_id, image_id):
+    meta = _registry(mission_id).load(image_id)
     if not meta or meta.get("generationStatus") != GENERATED:
         return None, (jsonify({"ok": False,
                                "error": f"Image {image_id} has not been generated"}), 404)
@@ -430,28 +502,71 @@ def _metadata_csv(meta):
 
 @bp.get("/image/<image_id>/download/<kind>")
 def download(image_id, kind):
-    """Download a generated product as png, jpeg, geotiff, json, csv or zip."""
-    meta, err = _require_product(image_id)
+    """Download a generated product as png, jpeg, geotiff, json, csv or zip.
+
+    Gated separately from viewing: holding the ic-catalog/ic-gallery view
+    code is what makes this route reachable at all (see _gate_image_center),
+    but taking a file out of the dashboard needs that section's distinct
+    download code too.
+    """
+    if not (unlocked_downloads(request) & set(IC_SECTIONS)):
+        return jsonify({
+            "ok": False,
+            "error": "Download access code required",
+            "requiredDownloadSections": list(IC_SECTIONS),
+            "requiredLabels": [SECTIONS[s]["label"] for s in IC_SECTIONS],
+        }), 403
+
+    mission_id = _mission_id_from_request()
+    meta, err = _require_product(mission_id, image_id)
     if err:
         return err
 
-    tif = IMAGE_PRODUCTS / f"{image_id}.tif"
-    png = IMAGE_PRODUCTS / f"{image_id}.png"
+    image_products = get_mission(mission_id)["image_center_dir"]
+    tif = image_products / f"{image_id}.tif"
+    png = image_products / f"{image_id}.png"
     kind = kind.lower()
 
     if kind == "png":
+        if not png.exists():
+            return jsonify({
+                "ok": False,
+                "error": "Full-resolution preview is not available on this deployment.",
+                "remedy": "Regenerate this observation, or run the dashboard locally.",
+                "available": _registry(mission_id).assets(image_id),
+            }), 409
         return send_file(png, as_attachment=True, download_name=f"{image_id}.png")
 
     if kind in ("jpg", "jpeg"):
         # Rendered on demand from the PNG rather than stored twice.
         from PIL import Image
 
-        jpg = IMAGE_PRODUCTS / f"{image_id}.jpg"
+        jpg = image_products / f"{image_id}.jpg"
         if not jpg.exists():
+            if not png.exists():
+                return jsonify({
+                    "ok": False,
+                    "error": "No source preview to render a JPEG from on this deployment.",
+                    "remedy": "Regenerate this observation, or run the dashboard locally.",
+                    "available": _registry(mission_id).assets(image_id),
+                }), 409
             Image.open(png).convert("RGB").save(jpg, "JPEG", quality=92)
         return send_file(jpg, as_attachment=True, download_name=f"{image_id}.jpg")
 
     if kind in ("geotiff", "tif", "tiff"):
+        if not tif.exists():
+            # Distinct from 404: the product exists and its preview and
+            # metadata are served -- only the full-resolution raster was not
+            # shipped with this deployment. Say so, and say what recovers it.
+            return jsonify({
+                "ok": False,
+                "error": "Full-resolution GeoTIFF is not available on this deployment.",
+                "reason": "Previews and metadata are shipped; the ~16 MB GeoTIFFs are not.",
+                "remedy": "Regenerate this observation to rebuild the GeoTIFF from the "
+                          "Sentinel-2 archive, or run the dashboard locally where the "
+                          "original product is stored.",
+                "available": _registry(mission_id).assets(image_id),
+            }), 409
         return send_file(tif, as_attachment=True, download_name=f"{image_id}.tif")
 
     if kind in ("json", "metadata"):
@@ -479,18 +594,109 @@ def download(image_id, kind):
     return jsonify({"ok": False, "error": f"Unsupported download kind {kind!r}"}), 400
 
 
+# Preview tiers. The full preview is the 2048 px PNG -- about 6 MB. Serving
+# that into a grid of sixteen tiles means ~96 MB per gallery view, which is
+# tolerable over loopback and unusable over the internet. So the grid asks for
+# a thumbnail instead: a small JPEG cached beside the product, built once from
+# the PNG and reused thereafter.
+THUMB_PX = 480
+THUMB_QUALITY = 82
+THUMB_SUFFIX = ".thumb.jpg"
+
+
+def thumb_path(image_products, image_id):
+    return Path(image_products) / f"{image_id}{THUMB_SUFFIX}"
+
+
+def build_thumbnail(image_products, image_id):
+    """Return the cached thumbnail path, rendering it from the PNG if needed.
+
+    Returns None when neither a thumbnail nor a PNG is present -- which is the
+    case on a deployment that ships previews but not this particular product.
+    """
+    thumb = thumb_path(image_products, image_id)
+    if thumb.exists():
+        return thumb
+
+    png = Path(image_products) / f"{image_id}.png"
+    if not png.exists():
+        return None
+
+    from PIL import Image
+
+    with Image.open(png) as im:
+        im = im.convert("RGB")
+        im.thumbnail((THUMB_PX, THUMB_PX), Image.LANCZOS)
+        try:
+            im.save(thumb, "JPEG", quality=THUMB_QUALITY, optimize=True)
+        except OSError:
+            # Read-only filesystem: still serve the thumbnail, just do not
+            # cache it. Correctness does not depend on the cache.
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=THUMB_QUALITY)
+            buf.seek(0)
+            return buf
+    return thumb
+
+
 @bp.get("/image/<image_id>/preview")
 def preview(image_id):
-    """Inline preview image for gallery thumbnails and the detail page."""
-    png = IMAGE_PRODUCTS / f"{image_id}.png"
+    """Inline preview image. ?size=thumb for the grid, full-resolution otherwise.
+
+    Products are immutable once generated -- regeneration writes a new file
+    for the same id only on explicit request -- so both tiers are safe to
+    cache in the browser for a long time.
+    """
+    image_products = get_mission(_mission_id_from_request())["image_center_dir"]
+    want_thumb = (request.args.get("size") or "").lower() in ("thumb", "thumbnail", "small")
+
+    if want_thumb:
+        thumb = build_thumbnail(image_products, image_id)
+        if thumb is None:
+            return jsonify({"ok": False, "error": "No preview; image not generated"}), 404
+        resp = (send_file(thumb, mimetype="image/jpeg") if isinstance(thumb, Path)
+                else send_file(thumb, mimetype="image/jpeg"))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+
+    png = Path(image_products) / f"{image_id}.png"
     if not png.exists():
         return jsonify({"ok": False, "error": "No preview; image not generated"}), 404
-    return send_file(png, mimetype="image/png")
+    resp = send_file(png, mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@bp.get("/image/<image_id>/reference")
+def reference_image(image_id):
+    """The real Earth reference render for the Geospatial Validation panel --
+    the same real Sentinel-2 reflectance the simulated product was derived
+    from, rendered without the sensor simulation. See core/reference.py.
+
+    Gated the same as /preview: reaching this route at all already required
+    an Image Center view code (see _gate_image_center), and viewing this
+    reference image is treated the same as viewing the simulated preview,
+    not as a download -- it carries no more information than what the
+    product's own metadata already discloses about the reference source.
+    """
+    image_products = get_mission(_mission_id_from_request())["image_center_dir"]
+    ref = Path(image_products) / f"{image_id}.reference.jpg"
+    if not ref.exists():
+        return jsonify({
+            "ok": False,
+            "error": "No reference image for this product.",
+            "reason": "Generated before the Geospatial Validation feature, or the reference render failed.",
+            "remedy": "Regenerate this observation to produce its reference image.",
+        }), 404
+    resp = send_file(ref, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @bp.post("/image/<image_id>/downloaded")
 def mark_downloaded(image_id):
     """Record that an operator has downloaded this product."""
+    registry = _registry(_mission_id_from_request())
     meta = registry.load(image_id)
     if not meta:
         return jsonify({"ok": False, "error": f"No product for {image_id}"}), 404
@@ -508,14 +714,15 @@ def mark_downloaded(image_id):
 @bp.get("/image/<image_id>/geometry")
 def geometry(image_id):
     """Everything the map needs to highlight one image: footprint and track."""
-    df = _catalog()
+    mission_id = _mission_id_from_request()
+    df = _catalog(mission_id)
     row = df[df["imageId"] == image_id]
     if row.empty:
         return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
     entry = row.iloc[0].to_dict()
 
     # Ground track segment around the capture, for context on the map.
-    state = _state().copy()
+    state = _state(mission_id).copy()
     state["Timestamp"] = pd.to_datetime(state["Timestamp"], errors="coerce")
     sat = state[state["Satellite Name"].astype(str) == entry["satellite"]].sort_values("Timestamp")
     epoch = pd.to_datetime(entry["captureEpochUtc"])

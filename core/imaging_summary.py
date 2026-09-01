@@ -33,6 +33,14 @@ def build_imaging_summary(state_df, camera_model, per_sat_observation):
     here means an estimated scene count: along-track distance imaged divided by a
     nominal along-track frame footprint derived from the camera's own geometry
     (GSD x Image Height). This is a derived estimate, not a raw payload counter.
+
+    "Image Height" here is DEFAULT_CAMERA's fixed nominal frame-length constant
+    (core.camera_model), used only to size a representative frame for this
+    fleet-wide estimate. It is NOT the same quantity as an individual generated
+    product's actual delivered height, which core.image_center.build_catalog
+    computes per-observation from that pass's real along-track distance (transit
+    time x ground speed) divided by GSD -- two different numbers that happen to
+    share one source constant, not one figure reused for two purposes.
     """
     swath_km = float(camera_model.get("Ground Swath (km)") or 0.0)
     gsd_m = float(camera_model.get("GSD (m/pixel)") or 0.0)

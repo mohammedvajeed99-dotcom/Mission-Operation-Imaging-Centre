@@ -1,0 +1,408 @@
+{
+  "index": 2108,
+  "imageId": "ASC074-P1-S05-O0007-20260703T093636",
+  "satellite": "ASC_074_05",
+  "satelliteNumber": 5,
+  "plane": 1,
+  "orbit": 7,
+  "orbitPass": 1,
+  "captureDate": "2026-07-03",
+  "captureTimeUtc": "09:36:36",
+  "captureEpochUtc": "2026-07-03T09:36:36.302736842",
+  "missionElapsedTime": "000:09:36:36",
+  "missionElapsedSeconds": 34596.302736,
+  "latitude": -16.43218248570563,
+  "longitude": 126.95366085027024,
+  "altitudeKm": 537.2007702439264,
+  "cameraHeadingDeg": 140.93474210845832,
+  "cameraOrientation": "Nadir",
+  "groundFootprint": [
+    [
+      127.40842202689919,
+      -16.47724494495783
+    ],
+    [
+      126.90610249547024,
+      -16.867819545463508
+    ],
+    [
+      126.4995210014423,
+      -16.386625741281417
+    ],
+    [
+      127.000597842165,
+      -15.996051122231982
+    ],
+    [
+      127.40842202689919,
+      -16.47724494495783
+    ]
+  ],
+  "bbox": [
+    126.4995210014423,
+    -16.867819545463508,
+    127.40842202689919,
+    -15.996051122231982
+  ],
+  "footprintAreaKm2": 4749.178775510203,
+  "swathWidthKm": 68.91428571428571,
+  "gsdM": 8.412388392857142,
+  "estimatedResolution": "8192 x 8192 px",
+  "widthPx": 8192,
+  "heightPx": 8192,
+  "estimatedSizeBytes": 536870912,
+  "deliveredResolution": "2048 x 2048 px",
+  "deliveredWidthPx": 2048,
+  "deliveredHeightPx": 2048,
+  "deliveredSizeBytes": 33554432,
+  "deliveredGsdM": 33.64955357142857,
+  "aoiName": "Western Australia, Australia",
+  "australianState": "Western Australia",
+  "missionAoi": "Brisbane, Australia",
+  "fromInterpolatedFix": true,
+  "imageQualityScore": 82.9,
+  "cloudCoverPercent": 0.0,
+  "generatedTimestamp": "2026-08-29T10:27:22.457464+00:00",
+  "generationStatus": "Generated",
+  "downloadStatus": "Not Downloaded",
+  "sceneId": "ASC074-P1-S05-O0007-20260703T093636",
+  "acquisition": {
+    "satellite": "ASC_074_05",
+    "simulatedTimestampUtc": "2026-07-03T09:36:36.302736842",
+    "orbitNumber": 7,
+    "subSatelliteLat": -16.43218248570563,
+    "subSatelliteLon": 126.95366085027024,
+    "altitudeKm": 537.2007702439264,
+    "headingDeg": 140.93474210845832,
+    "groundSpeedKmS": 6.713256264748021
+  },
+  "geometry": {
+    "gsdM": 8.412388392857142,
+    "swathKm": 68.91428571428571,
+    "alongTrackKm": 68.91428571428571,
+    "footprintLonLat": [
+      [
+        127.40842202689919,
+        -16.47724494495783
+      ],
+      [
+        126.90610249547024,
+        -16.867819545463508
+      ],
+      [
+        126.4995210014423,
+        -16.386625741281417
+      ],
+      [
+        127.000597842165,
+        -15.996051122231982
+      ],
+      [
+        127.40842202689919,
+        -16.47724494495783
+      ]
+    ],
+    "bbox": [
+      126.4995210014423,
+      -16.867819545463508,
+      127.40842202689919,
+      -15.996051122231982
+    ],
+    "crs": "EPSG:4326",
+    "widthPx": 2048,
+    "heightPx": 2048
+  },
+  "sensor": {
+    "mtfSigmaPx": 0.6,
+    "alongTrackSmearPx": 1.197030370788901,
+    "lineIntegrationMs": 1.5,
+    "readNoiseElectrons": 35.0,
+    "fullWellElectrons": 22000.0,
+    "bitDepth": 12,
+    "noiseApplied": true,
+    "estimatedSnr": 41.4330340091185,
+    "atmosphere": {
+      "model": "Rayleigh path radiance + transmittance (simulated)",
+      "airMass": 1.0,
+      "viewAngleDeg": 0.0,
+      "perBand": {
+        "Red": {
+          "pathReflectance": 0.011,
+          "transmittance": 0.96
+        },
+        "Green": {
+          "pathReflectance": 0.021,
+          "transmittance": 0.93
+        },
+        "Blue": {
+          "pathReflectance": 0.034,
+          "transmittance": 0.9
+        },
+        "Near Infrared": {
+          "pathReflectance": 0.003,
+          "transmittance": 0.98
+        }
+      },
+      "provenance": "SIMULATED effect. Source imagery is Sentinel-2 L2A surface reflectance with the atmosphere removed; this stage re-applies a representative clear-sky atmosphere so the product approximates what an on-orbit sensor would observe. Values are representative, not a radiative-transfer computation, and are not measurements."
+    },
+    "noDataPixelPercent": 0.0,
+    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and GMAT telemetry. Pixels with no source imagery are reported in noDataPixelPercent and are excluded from every statistic; they are not filled with invented ground."
+  },
+  "cloud": {
+    "cloudCoverPercent": 0.0,
+    "method": "spectral-brightness-flatness",
+    "thresholds": {
+      "brightness": 0.28,
+      "spread": 0.08
+    },
+    "caveat": "Heuristic test on surface reflectance, not a trained cloud mask. Bright arid surfaces can register as false positives."
+  },
+  "quality": {
+    "score": 82.9,
+    "grade": "excellent",
+    "factors": {
+      "dynamicRange": 18.1,
+      "unsaturated": 100.0,
+      "notUnderexposed": 100.0,
+      "sharpness": 76.1,
+      "cloudFree": 100.0,
+      "dataComplete": 100.0
+    },
+    "weights": {
+      "dynamicRange": 0.15,
+      "unsaturated": 0.1,
+      "notUnderexposed": 0.1,
+      "sharpness": 0.2,
+      "cloudFree": 0.2,
+      "dataComplete": 0.25
+    },
+    "measurements": {
+      "saturatedPixelPercent": 0.0,
+      "zeroPixelPercent": 0.0,
+      "usedDynamicRangePercent": 18.1,
+      "alongTrackSmearPx": 1.2,
+      "estimatedSnr": 41.4,
+      "validDataPercent": 100.0
+    }
+  },
+  "validation": {
+    "status": "ok",
+    "label": "Generated",
+    "issues": [],
+    "measurements": {
+      "validDataPercent": 100.0,
+      "pureBlackPercent": 0.0,
+      "clippedWhitePercent": 0.0,
+      "cloudCoverPercent": 0.0
+    }
+  },
+  "classification": {
+    "available": true,
+    "method": "spectral-index-thresholds",
+    "classFractionsPercent": {
+      "water": 0.01,
+      "vegetation": 31.62,
+      "bare": 68.37,
+      "urban": 0.0,
+      "cloud": 0.0
+    },
+    "dominantClass": "bare",
+    "indices": {
+      "meanNdvi": 0.3183,
+      "meanNdwi": -0.4572,
+      "meanBrightness": 0.073
+    },
+    "thresholds": {
+      "cloud": "brightness > 0.28 and spread < 0.08",
+      "water": "NDWI > 0.2",
+      "vegetation": "NDVI > 0.35",
+      "urban": "NDVI < 0.2 and brightness > 0.15 and spread < 0.12",
+      "bare": "remaining valid pixels"
+    },
+    "caveat": "Index-threshold classification, not a trained classifier. Thresholds are standard published values and are not tuned to Australian land cover specifically."
+  },
+  "provenance": {
+    "sourceCollection": "sentinel-2-l2a",
+    "sourceSceneId": "S2A_52LCH_20260702_0_L2A",
+    "sourceDatetime": "2026-07-02T01:52:06.743000+00:00",
+    "sourceCloudCoverPercent": 5e-05,
+    "sourcePlatform": "sentinel-2a",
+    "sourceNativeGsdM": 10.0,
+    "sourceBands": [
+      "Red",
+      "Green",
+      "Blue",
+      "Near Infrared"
+    ],
+    "stacEndpoint": "https://earth-search.aws.element84.com/v1",
+    "mosaicContributors": [
+      {
+        "radiometricMatch": null,
+        "sceneId": "S2A_52LCH_20260702_0_L2A",
+        "datetime": "2026-07-02T01:52:06.743000+00:00",
+        "cloudCoverPercent": 5e-05,
+        "platform": "sentinel-2a",
+        "coverageContributed": 0.1295
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 131016,
+            "gain": 1.0062,
+            "offset": -0.00114
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 131016,
+            "gain": 1.02,
+            "offset": -0.00219
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 131016,
+            "gain": 1.0141,
+            "offset": -0.00168
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 131016,
+            "gain": 1.011,
+            "offset": -0.00176
+          }
+        ],
+        "sceneId": "S2A_52KCG_20260702_1_L2A",
+        "datetime": "2026-07-02T01:52:21.188000+00:00",
+        "cloudCoverPercent": 0.082773,
+        "platform": "sentinel-2a",
+        "coverageContributed": 0.1811
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 287000,
+            "gain": 1.0289,
+            "offset": -0.00439
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 287000,
+            "gain": 1.041,
+            "offset": -0.00502
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 287000,
+            "gain": 1.0453,
+            "offset": -0.00515
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 287000,
+            "gain": 1.0203,
+            "offset": -0.00315
+          }
+        ],
+        "sceneId": "S2A_52KBG_20260702_0_L2A",
+        "datetime": "2026-07-02T01:52:24.448000+00:00",
+        "cloudCoverPercent": 0.260344,
+        "platform": "sentinel-2a",
+        "coverageContributed": 0.4713
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 1065400,
+            "gain": 1.017,
+            "offset": -0.00331
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 1065400,
+            "gain": 1.0304,
+            "offset": -0.00332
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 1065400,
+            "gain": 1.0453,
+            "offset": -0.00296
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 1065400,
+            "gain": 1.0148,
+            "offset": -0.00244
+          }
+        ],
+        "sceneId": "S2A_51KZB_20260702_0_L2A",
+        "datetime": "2026-07-02T01:52:25.425000+00:00",
+        "cloudCoverPercent": 1.31478,
+        "platform": "sentinel-2a",
+        "coverageContributed": 0.0107
+      },
+      {
+        "radiometricMatch": [
+          {
+            "band": 0,
+            "applied": true,
+            "overlapPx": 510841,
+            "gain": 1.0219,
+            "offset": -0.00305
+          },
+          {
+            "band": 1,
+            "applied": true,
+            "overlapPx": 510841,
+            "gain": 1.0345,
+            "offset": -0.00334
+          },
+          {
+            "band": 2,
+            "applied": true,
+            "overlapPx": 510841,
+            "gain": 1.0404,
+            "offset": -0.00307
+          },
+          {
+            "band": 3,
+            "applied": true,
+            "overlapPx": 510841,
+            "gain": 1.0115,
+            "offset": -0.00154
+          }
+        ],
+        "sceneId": "S2A_52LBH_20260702_0_L2A",
+        "datetime": "2026-07-02T01:52:09.918000+00:00",
+        "cloudCoverPercent": 8.848232,
+        "platform": "sentinel-2a",
+        "coverageContributed": 0.2074
+      }
+    ],
+    "mosaicSceneCount": 5,
+    "validDataFraction": 1.0,
+    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from GMAT telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+  },
+  "files": {
+    "geotiff": "ASC074-P1-S05-O0007-20260703T093636.tif",
+    "preview": "ASC074-P1-S05-O0007-20260703T093636.png",
+    "metadata": "ASC074-P1-S05-O0007-20260703T093636.json"
+  },
+  "qualityStatus": "ok",
+  "qualityLabel": "Generated",
+  "qualityIssues": []
+}

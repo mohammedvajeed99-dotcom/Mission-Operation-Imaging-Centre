@@ -1,0 +1,69 @@
+{
+  "index": 46,
+  "imageId": "ASC074-P5-S35-O0001-20260703T002743",
+  "satellite": "ASC_074_35",
+  "satelliteNumber": 35,
+  "plane": 5,
+  "orbit": 1,
+  "orbitPass": 1,
+  "captureDate": "2026-07-03",
+  "captureTimeUtc": "00:27:43",
+  "captureEpochUtc": "2026-07-03T00:27:43.633526315",
+  "missionElapsedTime": "000:00:27:44",
+  "missionElapsedSeconds": 1663.633526,
+  "latitude": -11.220765210705249,
+  "longitude": 141.80622274733395,
+  "altitudeKm": 543.0948387470062,
+  "cameraHeadingDeg": 142.29565338847885,
+  "cameraOrientation": "Nadir",
+  "groundFootprint": [
+    [
+      142.24959562039066,
+      -11.276248175472197
+    ],
+    [
+      141.74926874635116,
+      -11.655284199367014
+    ],
+    [
+      141.36327422463125,
+      -11.16494976542936
+    ],
+    [
+      141.86275237560017,
+      -10.785913729287788
+    ],
+    [
+      142.24959562039066,
+      -11.276248175472197
+    ]
+  ],
+  "bbox": [
+    141.36327422463125,
+    -11.655284199367014,
+    142.24959562039066,
+    -10.785913729287788
+  ],
+  "footprintAreaKm2": 4749.178775510203,
+  "swathWidthKm": 68.91428571428571,
+  "gsdM": 8.412388392857142,
+  "estimatedResolution": "8192 x 8192 px",
+  "widthPx": 8192,
+  "heightPx": 8192,
+  "estimatedSizeBytes": 536870912,
+  "deliveredResolution": "2048 x 2048 px",
+  "deliveredWidthPx": 2048,
+  "deliveredHeightPx": 2048,
+  "deliveredSizeBytes": 33554432,
+  "deliveredGsdM": 33.64955357142857,
+  "aoiName": "Queensland, Australia",
+  "australianState": "Queensland",
+  "missionAoi": "Brisbane, Australia",
+  "fromInterpolatedFix": true,
+  "imageQualityScore": null,
+  "cloudCoverPercent": null,
+  "generatedTimestamp": "2026-08-04T06:35:01.253816+00:00",
+  "generationStatus": "Failed",
+  "downloadStatus": "Not Downloaded",
+  "error": "No candidate scene could be read for bbox (141.36327422463125, -11.655284199367014, 142.24959562039066, -10.785913729287788)"
+}

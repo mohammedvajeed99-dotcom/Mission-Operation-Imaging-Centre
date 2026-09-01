@@ -1,0 +1,32 @@
+# Render blueprint for the ASC_074 Mission Operations Center.
+#
+# Render is one option; the Dockerfile is standard and works equally on
+# Fly.io, Railway, a VPS or anywhere else that runs containers.
+#
+# After the first deploy, set the two secret environment variables in the
+# Render dashboard (they are marked sync:false so they are never committed):
+#
+#   ASC074_ACCESS_SECRET  the token signing key
+#   ASC074_ACCESS_CODES   the JSON contents of config/access_codes.json
+#
+# Without them the container regenerates both on every restart, which would
+# silently change every access code you have handed out.
+
+services:
+  - type: web
+    name: asc074-mission-ops
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ASC074_ACCESS_SECRET
+        sync: false
+      - key: ASC074_ACCESS_CODES
+        sync: false
+      # Starter has the same 512 MB RAM as free (the upgrade buys no-sleep
+      # and more CPU, not more memory). Warming both missions at startup is
+      # still the peak-memory moment, so it stays disabled here and the cost
+      # is paid on the first request instead.
+      - key: ASC074_WARM_CACHES
+        value: "0"

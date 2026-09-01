@@ -1,8 +1,8 @@
 from pathlib import Path
 import pandas as pd
 REQUIRED_SHEETS=["Mission","Constellation","Orbit","Ground_Stations","Payload","Power"]
-def load_mission_configuration(base_dir):
-    path=Path(base_dir)/"config"/"Mission_Configuration.xlsx"
+def load_mission_configuration(base_dir, config_path=None):
+    path=Path(config_path) if config_path else Path(base_dir)/"config"/"Mission_Configuration.xlsx"
     xl=pd.ExcelFile(path)
     missing=[s for s in REQUIRED_SHEETS if s not in xl.sheet_names]
     if missing: raise ValueError("Missing sheets: "+", ".join(missing))

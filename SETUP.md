@@ -1,6 +1,6 @@
-# Mission Operations Center — Setup Guide
+# Ansumi Orbital Hub — Setup Guide
 
-A satellite Mission Operations Center dashboard.
+A satellite mission operations dashboard.
 **Backend:** Python + Flask (serves the data API).
 **Frontend:** React + Vite (the dashboard UI).
 

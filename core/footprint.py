@@ -60,6 +60,44 @@ def ground_track_heading(group):
     return np.append(head, head[-1])
 
 
+def validate_wgs84(lat, lon):
+    """Check a coordinate is a well-formed WGS84 lat/lon pair.
+
+    GMAT telemetry is well-formed in practice, so this has never been
+    expected to fail -- but "expected to be valid" and "validated" are
+    different claims, and a displayed pass/fail is the latter. Returns
+    a small structured result rather than raising, so a caller can surface
+    it in the same product metadata as every other field.
+    """
+    issues = []
+    lat_f = lon_f = None
+    try:
+        lat_f = float(lat)
+        if not math.isfinite(lat_f):
+            issues.append("latitude is not finite")
+        elif not (-90.0 <= lat_f <= 90.0):
+            issues.append(f"latitude {lat_f} is outside [-90, 90]")
+    except (TypeError, ValueError):
+        issues.append(f"latitude {lat!r} is not numeric")
+
+    try:
+        lon_f = float(lon)
+        if not math.isfinite(lon_f):
+            issues.append("longitude is not finite")
+        elif not (-180.0 <= lon_f <= 180.0):
+            issues.append(f"longitude {lon_f} is outside [-180, 180]")
+    except (TypeError, ValueError):
+        issues.append(f"longitude {lon!r} is not numeric")
+
+    return {
+        "valid": not issues,
+        "datum": "WGS84",
+        "latitude": lat_f,
+        "longitude": lon_f,
+        "issues": issues,
+    }
+
+
 def footprint_corners(lat, lon, heading_deg, swath_km, along_km):
     """Four corners of a nadir rectangular footprint, in order, closed.
 
@@ -223,6 +261,13 @@ def scene_grid(state_df, camera_model, min_scene_gap_km=None):
 
     swath_km = float(camera_model.get("Ground Swath (km)") or 0.0)
     gsd_m = float(camera_model.get("GSD (m/pixel)") or 0.0)
+    # Presence check only: this validity guard does not use Image Height's
+    # value beyond confirming the camera model is populated -- the actual
+    # scene cut length below is swath-based, not derived from this nominal
+    # frame constant. See build_imaging_summary in core.imaging_summary for
+    # where "Image Height (px)" (a fixed DEFAULT_CAMERA constant, distinct
+    # from any individual product's actual delivered height) is genuinely
+    # used in a calculation.
     height_px = float(camera_model.get("Image Height (px)") or 0.0)
     width_px = float(camera_model.get("Image Width (px)") or 0.0)
 

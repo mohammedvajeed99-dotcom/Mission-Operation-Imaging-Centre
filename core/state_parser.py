@@ -28,8 +28,14 @@ def parse_state_report(path):
     for sat in sats:
         data = {'Timestamp': wide['Timestamp'], 'Satellite Name': sat}
         for field in ['Latitude','Longitude','Altitude','RMAG','ECC']:
-            col = f'{sat}.{field}'
-            if col in wide.columns:
+            # Field columns are usually "Sat.Field" but some GMAT reports insert
+            # a body segment, e.g. "Sat.Earth.Field" -- match either.
+            col = next(
+                (c for c in headers
+                 if c == f'{sat}.{field}' or re.match(rf'^{re.escape(sat)}\.\w+\.{field}$', c)),
+                None,
+            )
+            if col:
                 data[field] = pd.to_numeric(wide[col], errors='coerce')
         frames.append(pd.DataFrame(data))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
