@@ -235,13 +235,13 @@ def schedule_requests(state_df, camera_model, requests, min_gap_seconds=60):
     }
 
 
-def coverage_replay(state_df, camera_model, steps=24, resolution_deg=1.0):
-    """Cumulative Australia coverage sampled at intervals across the report span.
+def coverage_replay(state_df, camera_model, steps=24, resolution_deg=1.0, region="australia"):
+    """Cumulative AOI coverage sampled at intervals across the report span.
 
     Returns one frame per step, each carrying the cumulative coverage percentage
     up to that moment, so the dashboard can animate coverage accumulating.
     """
-    from core.cumulative_coverage import cumulative_australia_coverage
+    from core.cumulative_coverage import cumulative_region_coverage
 
     swath_km = float(camera_model.get("Ground Swath (km)") or 0.0)
     df = _prepare(state_df)
@@ -256,7 +256,7 @@ def coverage_replay(state_df, camera_model, steps=24, resolution_deg=1.0):
         upto = df[df["Timestamp"] <= edge]
         if upto.empty:
             continue
-        _, _, pct = cumulative_australia_coverage(upto, swath_km, resolution_deg=resolution_deg)
+        _, _, pct = cumulative_region_coverage(upto, swath_km, resolution_deg=resolution_deg, region=region)
         frames.append({
             "step": i,
             "timestamp": edge.isoformat(),

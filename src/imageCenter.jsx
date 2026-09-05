@@ -72,44 +72,61 @@ function icUrl(path, missionId) {
   return `${IC}${path}${sep}mission=${encodeURIComponent(missionId || "asc074_6x8")}`;
 }
 
-/* ------------------- Australia-focused footprint map -------------------
+/* ------------------- Region-focused footprint map -------------------
    Deliberately a separate, regionally-scaled map rather than the world
    MapBase used elsewhere: a 69 km footprint is sub-pixel on a world
-   projection and would be invisible.                                     */
+   projection and would be invisible. Two mission AOI regions exist today
+   (core.regions -- Australia and India); the region whose box actually
+   contains the footprint being plotted is picked at render time, so this
+   generalises to a new AOI region without the caller needing to know
+   which mission it belongs to. */
 
-const REGION = { lonMin: 108, lonMax: 158, latMin: -46, latMax: -8 };
 const MW = 720;
-const MH = (MW * (REGION.latMax - REGION.latMin)) / (REGION.lonMax - REGION.lonMin);
 
-const rx = (lon) => ((Number(lon) - REGION.lonMin) / (REGION.lonMax - REGION.lonMin)) * MW;
-const ry = (lat) => ((REGION.latMax - Number(lat)) / (REGION.latMax - REGION.latMin)) * MH;
-
-const REGION_LAND = (() => {
+function buildRegion(box, gratLons, gratLats) {
+  const mh = (MW * (box.latMax - box.latMin)) / (box.lonMax - box.lonMin);
+  const rx = (lon) => ((Number(lon) - box.lonMin) / (box.lonMax - box.lonMin)) * MW;
+  const ry = (lat) => ((box.latMax - Number(lat)) / (box.latMax - box.latMin)) * mh;
+  let land = "";
   try {
     const geo = feature(worldTopo, worldTopo.objects.land);
     const features = geo.features || [geo];
-    let d = "";
     features.forEach((f) => {
       const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
       polys.forEach((poly) =>
         poly.forEach((ring) => {
-          // Cheap reject: skip rings entirely outside the Australian window.
+          // Cheap reject: skip rings entirely outside this region's window.
           const lons = ring.map((p) => p[0]);
           const lats = ring.map((p) => p[1]);
-          if (Math.max(...lons) < REGION.lonMin || Math.min(...lons) > REGION.lonMax) return;
-          if (Math.max(...lats) < REGION.latMin || Math.min(...lats) > REGION.latMax) return;
+          if (Math.max(...lons) < box.lonMin || Math.min(...lons) > box.lonMax) return;
+          if (Math.max(...lats) < box.latMin || Math.min(...lats) > box.latMax) return;
           ring.forEach((pt, i) => {
-            d += `${i === 0 ? "M" : "L"}${rx(pt[0]).toFixed(1)} ${ry(pt[1]).toFixed(1)}`;
+            land += `${i === 0 ? "M" : "L"}${rx(pt[0]).toFixed(1)} ${ry(pt[1]).toFixed(1)}`;
           });
-          d += "Z";
+          land += "Z";
         })
       );
     });
-    return d;
   } catch (err) {
-    return "";
+    land = "";
   }
-})();
+  return { box, mh, rx, ry, land, gratLons, gratLats };
+}
+
+const MAP_REGIONS = {
+  australia: buildRegion({ lonMin: 108, lonMax: 158, latMin: -46, latMax: -8 }, [110, 120, 130, 140, 150], [-10, -20, -30, -40]),
+  india: buildRegion({ lonMin: 63, lonMax: 103, latMin: 3, latMax: 43 }, [70, 80, 90, 100], [10, 20, 30, 40]),
+};
+
+function regionFor(lon, lat) {
+  if (lon != null && lat != null) {
+    const hit = Object.values(MAP_REGIONS).find(
+      (r) => lon >= r.box.lonMin && lon <= r.box.lonMax && lat >= r.box.latMin && lat <= r.box.latMax
+    );
+    if (hit) return hit;
+  }
+  return MAP_REGIONS.australia;
+}
 
 function FootprintMap({ geometry, height = 380 }) {
   if (!geometry) return <div className="icMapEmpty">Select an image to plot its footprint</div>;
@@ -117,6 +134,10 @@ function FootprintMap({ geometry, height = 380 }) {
   const fp = geometry.footprint || [];
   const track = geometry.groundTrack || [];
   const pos = geometry.satellitePosition || {};
+  const anchor = pos.lat !== undefined ? pos : fp[0] || track[0] || {};
+  const region = regionFor(anchor.lon, anchor.lat);
+  const { mh: MH, rx, ry, land: REGION_LAND } = region;
+
   const fpPath = fp.length
     ? fp.map((p, i) => `${i === 0 ? "M" : "L"}${rx(p.lon).toFixed(1)} ${ry(p.lat).toFixed(1)}`).join("") + "Z"
     : "";
@@ -134,13 +155,13 @@ function FootprintMap({ geometry, height = 380 }) {
         </radialGradient>
       </defs>
       <rect width={MW} height={MH} fill="url(#icOcean)" />
-      {[110, 120, 130, 140, 150].map((lon) => (
+      {region.gratLons.map((lon) => (
         <g key={lon}>
           <line x1={rx(lon)} y1={0} x2={rx(lon)} y2={MH} className="icGrat" />
           <text x={rx(lon) + 3} y={MH - 5} className="icGratLabel">{lon}°E</text>
         </g>
       ))}
-      {[-10, -20, -30, -40].map((lat) => (
+      {region.gratLats.map((lat) => (
         <g key={lat}>
           <line x1={0} y1={ry(lat)} x2={MW} y2={ry(lat)} className="icGrat" />
           <text x={4} y={ry(lat) - 4} className="icGratLabel">{lat}°</text>
@@ -482,7 +503,7 @@ function ImageDetail({ imageId, missionId, onClose, onChanged }) {
           <h4>Mission Observation Product</h4>
           <Row label="Observation ID" value={detail.imageId} tag="derived" />
           <Row label="Satellite" value={detail.satellite} tag="measured" />
-          <Row label="Mission" value={detail.missionAoi ? "ASC_074" : "ASC_074"} tag="measured" />
+          <Row label="Mission" value={String(detail.imageId || "").split("-")[0] || "—"} tag="measured" />
           <Row label="Acquisition (UTC)" value={`${detail.captureDate} ${detail.captureTimeUtc}`} tag="simulated" />
           <Row label="Instantaneous geodetic altitude" value={`${num(detail.altitudeKm, 1)} km`} tag="measured" infoKey="instantaneous_geodetic_altitude" />
           <Row label="Orbit number / pass" value={`${detail.orbit} / ${detail.orbitPass}`} tag="measured" />

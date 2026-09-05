@@ -142,8 +142,13 @@ def validate_product(dn, rgb, valid_mask, cloud, quality, contributors=None):
         fail(QUALITY_LIMITED, "qualityScore", f"Composite quality score {score:.0f}/100")
 
     # Residual seam check: granules are radiometrically matched during
-    # mosaicking, so a large remaining gain means the join could not be
-    # reconciled and may still show.
+    # mosaicking, so a large remaining gain means the join could not be fully
+    # reconciled. core.imagery.read_footprint_mosaic now feathers that join
+    # over a ~12px band (core.imagery._feather_seam) rather than cutting over
+    # in one pixel, which removes the hard visible line even when the gain
+    # was clamped -- but the two granules still disagree radiometrically by
+    # more than a straight gain/offset can correct, so this is flagged as a
+    # real, disclosed limitation rather than treated as fixed.
     #
     # Only the visible bands (0-2) can produce a seam a viewer actually sees,
     # so only those downgrade the product. A large near-infrared gain is worth
@@ -159,7 +164,9 @@ def validate_product(dn, rgb, valid_mask, cloud, quality, contributors=None):
             if band.get("band") in VISIBLE_BANDS:
                 fail(QUALITY_LIMITED, "seam",
                      f"Granule {c.get('sceneId')} needed an extreme radiometric gain ({gain}) "
-                     f"in a visible band; a seam may remain")
+                     f"in a visible band; the join is feathered so it should not read as a hard "
+                     f"line, but the two granules still disagree radiometrically beyond what "
+                     f"the gain correction could reconcile")
                 break
             fail("note", "seamNonVisible",
                  f"Granule {c.get('sceneId')} needed an extreme gain ({gain}) in a non-visible "

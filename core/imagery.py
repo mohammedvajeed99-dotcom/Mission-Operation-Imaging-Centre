@@ -287,8 +287,59 @@ def _match_radiometry(array, mosaic, min_overlap_px=500):
     return out, report
 
 
+FEATHER_PX = 12  # transition width, in delivered pixels, for _feather_seam
+
+
+def _feather_seam(mosaic, array, feather_px=FEATHER_PX):
+    """Fill mosaic's gaps from array with a soft-edged join instead of a
+    hard cutover.
+
+    `_match_radiometry` already corrects the *level* mismatch between two
+    granules, but a single clamped gain cannot remove 100% of it (see its
+    own docstring: past a point the difference is genuinely different
+    ground, not a radiometric offset, and must not be stretched away). A
+    hard boundary -- fully granule A on one pixel, fully granule B on the
+    next -- turns whatever residual remains into one sharp, highly visible
+    line, because human vision is far more sensitive to an edge than to a
+    slow gradient of the same total magnitude.
+
+    Sentinel-2 granules overlap by design, so wherever the two rasters are
+    both real (`overlap`), the boundary is blended linearly over
+    `feather_px` pixels -- standard mosaic feathering, the same technique
+    QGIS/GDAL cutline blending and production ground segments use. This
+    never invents a pixel: every blended value is a weighted average of two
+    real observations in a region both scenes actually cover. Pixels where
+    only one raster has data (deep in a genuine gap, or the primary's own
+    exclusive footprint beyond the overlap) are left exactly as before.
+    """
+    gaps = ~np.isfinite(mosaic)
+    fillable = gaps & np.isfinite(array)
+    if not fillable.any():
+        return mosaic
+
+    out = mosaic.copy()
+    use_feather = feather_px > 0
+
+    for b in range(mosaic.shape[0]):
+        band_overlap = np.isfinite(mosaic[b]) & np.isfinite(array[b])
+        if use_feather and band_overlap.any():
+            from scipy.ndimage import distance_transform_edt
+
+            # Distance, in pixels, from each mosaic-covered pixel in this band
+            # to the nearest gap pixel in this same band -- 0 right at the
+            # join, growing deeper into the primary's own exclusive
+            # territory. Computed per band since a band's own nodata mask
+            # (not the union across bands) is what its blend must respect.
+            dist_from_gap = distance_transform_edt(np.isfinite(mosaic[b]))
+            alpha = np.clip(1.0 - dist_from_gap / float(feather_px), 0.0, 1.0)
+            blended = alpha * array[b] + (1.0 - alpha) * mosaic[b]
+            out[b] = np.where(band_overlap, blended, out[b])
+        out[b] = np.where(fillable[b], array[b], out[b])
+    return out
+
+
 def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue", "Near Infrared"),
-                          min_coverage=0.995, harmonise=True):
+                          min_coverage=0.995, harmonise=True, feather=True):
     """Read `bbox` from `items`, filling gaps from later items until covered.
 
     A Sentinel-2 granule is a 110 km tile, so a ~69 km footprint sitting on a
@@ -342,7 +393,7 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
             # it fills anything, otherwise the join shows as a hard step.
             if harmonise:
                 array, match_report = _match_radiometry(array, mosaic)
-            mosaic = np.where(gaps & np.isfinite(array), array, mosaic)
+            mosaic = _feather_seam(mosaic, array, feather_px=FEATHER_PX if feather else 0)
             filled_now = float(np.isfinite(mosaic).mean()) - before
             if filled_now <= 0.0005:
                 continue  # contributed nothing useful; do not credit it
@@ -376,5 +427,7 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
         "mosaicContributors": contributors,
         "mosaicSceneCount": sum(1 for c in contributors if "skipped" not in c),
         "validDataFraction": round(coverage, 4),
+        "seamFeathered": bool(feather),
+        "seamFeatherPx": FEATHER_PX if feather else 0,
     }
     return mosaic, provenance

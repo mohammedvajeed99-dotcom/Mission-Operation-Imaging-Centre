@@ -7,12 +7,14 @@ from flask_cors import CORS
 
 from core.australia_coverage import (
     MAINLAND_AUSTRALIA,
+    MAINLAND_INDIA,
     TASMANIA,
-    footprint_intersects_australia,
+    footprint_intersects_region,
 )
+from core.regions import AOI_BOXES, region_for_mission, region_label_for_mission
 from core.camera_model import build_camera_model, build_camera_modules
 from core.config_loader import load_mission_configuration, validate_configuration
-from core.cumulative_coverage import cumulative_australia_coverage
+from core.cumulative_coverage import cumulative_region_coverage
 from core.data_pipeline import read_processed_frame, run_pipeline
 from core.data_quality import assess_data_quality
 from core.access_control import (
@@ -60,9 +62,15 @@ from core.constellation_analytics import (
 
 BASE = Path(__file__).resolve().parent
 
-# Mission Area of Interest rectangle (from the mission duty-cycle matrix):
-# longitude 110E..160E, latitude 10S..40S.
-AOI = {"lonMin": 110.0, "lonMax": 160.0, "latMin": -40.0, "latMax": -10.0}
+# Kept for any external caller still expecting the original Australia-only
+# AOI box under this module-level name; per-mission code should use
+# core.regions.aoi_box_for_mission(mission_id) instead.
+AOI = AOI_BOXES["australia"]
+
+_REGION_OUTLINES = {
+    "australia": {"outline": MAINLAND_AUSTRALIA, "secondary": TASMANIA},
+    "india": {"outline": MAINLAND_INDIA, "secondary": []},
+}
 
 app = Flask(__name__)
 # The access token travels in a custom header, which triggers a CORS preflight
@@ -328,7 +336,7 @@ def satellite_event_matrix(rf, optical, eclipse, state_df=None, satellites_per_p
     return rows
 
 
-def build_duty(state, eclipse, swath_km):
+def build_duty(state, eclipse, swath_km, region="australia"):
     if state.empty:
         return {"summary": [], "timeline": [], "metrics": {}}
 
@@ -337,8 +345,8 @@ def build_duty(state, eclipse, swath_km):
     duty["Latitude"] = pd.to_numeric(duty["Latitude"], errors="coerce")
     duty["Longitude"] = pd.to_numeric(duty["Longitude"], errors="coerce")
     duty = duty.dropna(subset=["Timestamp", "Satellite Name", "Latitude", "Longitude"])
-    duty["observingAustralia"] = footprint_intersects_australia(
-        duty, float(swath_km), lon_col="Longitude", lat_col="Latitude"
+    duty["observingAustralia"] = footprint_intersects_region(
+        duty, float(swath_km), region=region, lon_col="Longitude", lat_col="Latitude"
     )
     duty = duty.sort_values(["Satellite Name", "Timestamp"])
     steps = duty.groupby("Satellite Name")["Timestamp"].diff().dt.total_seconds()
@@ -403,6 +411,7 @@ def build_duty(state, eclipse, swath_km):
 @lru_cache(maxsize=8)
 def dashboard_payload(mission_id=DEFAULT_MISSION):
     mission_entry = get_mission(mission_id)
+    region = region_for_mission(mission_id)
     config = load_mission_configuration(BASE, config_path=mission_entry["config_path"])
     mission = config["mission"]
     constellation = config["constellation"]
@@ -461,15 +470,15 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
         )
         altitude_history = records(alt.rename(columns={"Satellite Name": "satellite"}))
 
-    coverage_grid, coverage_contrib, coverage_pct = cumulative_australia_coverage(state, swath_km, resolution_deg=1.0)
+    coverage_grid, coverage_contrib, coverage_pct = cumulative_region_coverage(state, swath_km, resolution_deg=1.0, region=region)
     coverage_view = coverage_grid.copy()
     if not coverage_view.empty:
         coverage_view = coverage_view.rename(columns={"Latitude": "lat", "Longitude": "lon", "Covered": "covered"})
 
-    per_sat_obs, observation_windows, overall_obs, observation_timeline = observation_duration_analysis(state, swath_km)
-    duty = build_duty(state, eclipse, swath_km)
+    per_sat_obs, observation_windows, overall_obs, observation_timeline = observation_duration_analysis(state, swath_km, region=region)
+    duty = build_duty(state, eclipse, swath_km, region=region)
     imaging_summary, imaging_fleet = build_imaging_summary(state, camera, per_sat_obs)
-    global_per_sat, global_fleet, global_regions = build_global_coverage(state)
+    global_per_sat, global_fleet, global_regions = build_global_coverage(state, region=region)
 
     latest_payload = latest.rename(
         columns={
@@ -483,15 +492,15 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
     # Constellation Analytics Platform computations. Revisit is computed once
     # and shared -- it is the most expensive step and both the summary and the
     # gap analysis consume it.
-    revisit_analytics = compute_revisit_analytics(state, swath_km)
+    revisit_analytics = compute_revisit_analytics(state, swath_km, region=region)
     summary_analytics = compute_constellation_summary(
         config, state, rf, optical, camera, overall_obs,
         imaging_fleet=imaging_fleet, revisit_stats=revisit_analytics,
     )
     gap_analytics = compute_gap_analysis(revisit_analytics)
     sat_contributions = compute_satellite_contributions(state, rf, optical, duty.get("summary", []), records(imaging_summary), config)
-    density_heatmaps = compute_density_heatmaps(state, rf, optical, camera, swath_km=swath_km)
-    aoi_analytics = compute_aoi_analytics(state, camera, "australia", config)
+    density_heatmaps = compute_density_heatmaps(state, rf, optical, camera, swath_km=swath_km, region=region)
+    aoi_analytics = compute_aoi_analytics(state, camera, region, config)
     simulation_details = compute_simulation_details(config, state)
     mission_analytics = compute_mission_analytics(
         summary_analytics, gap_analytics, sat_contributions,
@@ -519,6 +528,8 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
             "name": str(mission.get("Mission Name", "Mission")),
             "type": str(mission.get("Mission Type", "Not configured")),
             "aoi": str(mission.get("Area of Interest", "Not configured")),
+            "aoiRegion": region,
+            "aoiRegionLabel": region_label_for_mission(mission_id),
             "latestEpoch": latest_time.isoformat() if latest_time is not None else None,
         },
         "constellation": {
@@ -560,9 +571,9 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
             "coveredCells": int(coverage_grid["Covered"].sum()) if not coverage_grid.empty else 0,
             "totalCells": int(len(coverage_grid)),
             "cells": records(coverage_view),
-            "outline": [{"lon": lon, "lat": lat} for lon, lat in MAINLAND_AUSTRALIA],
-            "tasmania": [{"lon": lon, "lat": lat} for lon, lat in TASMANIA],
-            "aoi": AOI,
+            "outline": [{"lon": lon, "lat": lat} for lon, lat in _REGION_OUTLINES.get(region, _REGION_OUTLINES["australia"])["outline"]],
+            "tasmania": [{"lon": lon, "lat": lat} for lon, lat in _REGION_OUTLINES.get(region, _REGION_OUTLINES["australia"])["secondary"]],
+            "aoi": AOI_BOXES.get(region, AOI_BOXES["australia"]),
             "contribution": records(coverage_contrib.rename(columns={"Satellite Name": "satellite", "Covered Cell Centers": "coveredCells"})),
             "observation": {
                 "overall": overall_obs,
@@ -632,11 +643,11 @@ def _state_cached(mission_id=DEFAULT_MISSION):
 
 @lru_cache(maxsize=8)
 def scene_catalog_payload(mission_id=DEFAULT_MISSION):
-    """Every candidate scene the constellation could capture over Australia."""
+    """Every candidate scene the constellation could capture over the mission's AOI."""
     from core.footprint import scene_grid
 
     camera = _camera(mission_id)
-    scenes = scene_grid(_state_cached(mission_id), camera)
+    scenes = scene_grid(_state_cached(mission_id), camera, region=region_for_mission(mission_id))
     if scenes.empty:
         return {"scenes": [], "count": 0, "camera": {}}
 
@@ -671,7 +682,7 @@ def generate_scene(scene_index):
     opts = request.get_json(silent=True) or {}
     camera = _camera(mission_id)
     state = _state_cached(mission_id)
-    scenes_df = scene_grid(state, camera)
+    scenes_df = scene_grid(state, camera, region=region_for_mission(mission_id))
 
     try:
         idx = int(scene_index)
@@ -809,7 +820,8 @@ def plan_schedule():
 def _replay(mission_id, steps):
     from core.planning import coverage_replay
 
-    return coverage_replay(_state_cached(mission_id), _camera(mission_id), steps=steps)
+    return coverage_replay(_state_cached(mission_id), _camera(mission_id), steps=steps,
+                            region=region_for_mission(mission_id))
 
 
 @app.get("/api/plan/replay")
@@ -838,9 +850,10 @@ def state_series_payload(mission_id=DEFAULT_MISSION, max_points=180):
             work[col] = pd.NA
     work = work.dropna(subset=["Timestamp", "Satellite Name"]).sort_values("Timestamp")
 
+    aoi_box = AOI_BOXES.get(region_for_mission(mission_id), AOI_BOXES["australia"])
     in_aoi_all = (
-        work["Longitude"].between(AOI["lonMin"], AOI["lonMax"])
-        & work["Latitude"].between(AOI["latMin"], AOI["latMax"])
+        work["Longitude"].between(aoi_box["lonMin"], aoi_box["lonMax"])
+        & work["Latitude"].between(aoi_box["latMin"], aoi_box["latMax"])
     )
     work["inAOI"] = in_aoi_all
 
@@ -882,7 +895,7 @@ def state_series_payload(mission_id=DEFAULT_MISSION, max_points=180):
         "satellites": sorted(series.keys()),
         "series": series,
         "summary": sorted(summary, key=lambda r: r["satellite"]),
-        "aoi": AOI,
+        "aoi": aoi_box,
         "range": {
             "start": clean_value(work["Timestamp"].min()),
             "end": clean_value(work["Timestamp"].max()),

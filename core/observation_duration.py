@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from core.australia_coverage import footprint_intersects_australia
+from core.australia_coverage import footprint_intersects_region
 
 def _fmt_duration(seconds):
     seconds = max(float(seconds or 0), 0.0)
@@ -14,11 +14,11 @@ def _fmt_duration(seconds):
         return f"{days}d {hours:02d}h {minutes:02d}m {secs:02d}s"
     return f"{hours:02d}h {minutes:02d}m {secs:02d}s"
 
-def observation_duration_analysis(state_df, swath_km, densify=True):
-    """Per-satellite Australia observation time, windows and duty cycle.
+def observation_duration_analysis(state_df, swath_km, densify=True, region="australia"):
+    """Per-satellite AOI observation time, windows and duty cycle.
 
     The GMAT report samples every ~94 s (~629 km of ground track, roughly nine
-    swath widths). At that spacing an entire Australia pass can fall between two
+    swath widths). At that spacing an entire AOI pass can fall between two
     fixes, so testing only the reported fixes under-reports observation time and
     splits real windows. The track is densified onto a great-circle path at
     half-swath spacing first. Pass densify=False for the older behaviour.
@@ -39,8 +39,8 @@ def observation_duration_analysis(state_df, swath_km, densify=True):
         df = densify_track(df, max_gap_km=max(float(swath_km) / 2.0, 1.0))
         df = df.sort_values(["Satellite Name", "Timestamp"]).reset_index(drop=True)
 
-    df["Observing Australia"] = footprint_intersects_australia(
-        df, float(swath_km), lon_col="Longitude", lat_col="Latitude"
+    df["Observing AOI"] = footprint_intersects_region(
+        df, float(swath_km), region=region, lon_col="Longitude", lat_col="Latitude"
     )
 
     # Infer each satellite's nominal report step. Each sample represents the
@@ -59,14 +59,14 @@ def observation_duration_analysis(state_df, swath_km, densify=True):
         np.minimum(dt, nominal.where(nominal > 0, dt)),
         0.0
     )
-    df["Observed Duration (s)"] = df["Sample Duration (s)"] * df["Observing Australia"].astype(int)
+    df["Observed Duration (s)"] = df["Sample Duration (s)"] * df["Observing AOI"].astype(int)
 
     # Build continuous observation windows per satellite.
     windows = []
     for sat, g in df.groupby("Satellite Name", sort=True):
         g = g.sort_values("Timestamp").copy()
         nominal_step = med_steps.get(sat, 0.0)
-        active = g[g["Observing Australia"]].copy()
+        active = g[g["Observing AOI"]].copy()
         if active.empty:
             continue
         gaps = active["Timestamp"].diff().dt.total_seconds()
@@ -102,7 +102,7 @@ def observation_duration_analysis(state_df, swath_km, densify=True):
 
     # Unique constellation observation time on the common timestamp grid.
     timeline = df.groupby("Timestamp", as_index=False).agg(
-        Observing_Satellites=("Observing Australia", "sum")
+        Observing_Satellites=("Observing AOI", "sum")
     ).sort_values("Timestamp")
     timeline["Next Timestamp"] = timeline["Timestamp"].shift(-1)
     timeline["Interval (s)"] = (timeline["Next Timestamp"] - timeline["Timestamp"]).dt.total_seconds().fillna(0)

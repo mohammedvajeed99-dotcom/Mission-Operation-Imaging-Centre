@@ -245,7 +245,7 @@ def orbit_numbers(group):
     return np.append(0, np.cumsum(ascending)) + 1
 
 
-def scene_grid(state_df, camera_model, min_scene_gap_km=None):
+def scene_grid(state_df, camera_model, min_scene_gap_km=None, region="australia"):
     """Discretise continuous pushbroom strips into individual scenes.
 
     A pushbroom sensor produces a continuous strip, not frames. To make the
@@ -255,9 +255,12 @@ def scene_grid(state_df, camera_model, min_scene_gap_km=None):
     tile a continuous downlink into granules.
 
     Returns a DataFrame of candidate scenes with footprint geometry attached.
-    Only fixes where the payload is observing Australia are considered.
+    Only fixes where the payload is observing the mission's AOI region
+    (see core.regions -- Australia or India today) are considered, so a
+    mission whose AOI is India naturally produces scenes over India, not
+    Australia's land polygon.
     """
-    from core.australia_coverage import footprint_intersects_australia
+    from core.australia_coverage import footprint_intersects_region
 
     swath_km = float(camera_model.get("Ground Swath (km)") or 0.0)
     gsd_m = float(camera_model.get("GSD (m/pixel)") or 0.0)
@@ -287,12 +290,12 @@ def scene_grid(state_df, camera_model, min_scene_gap_km=None):
     if df.empty:
         return pd.DataFrame()
 
-    # Densify before the Australia test: at the report's native 629 km fix
-    # spacing, whole Australia passes fall between samples.
+    # Densify before the AOI test: at the report's native 629 km fix
+    # spacing, whole AOI passes fall between samples.
     df = densify_track(df, max_gap_km=min(along_km, swath_km) / 2.0)
 
-    df["Observing Australia"] = footprint_intersects_australia(
-        df, swath_km, lon_col="Longitude", lat_col="Latitude"
+    df["Observing AOI"] = footprint_intersects_region(
+        df, swath_km, region=region, lon_col="Longitude", lat_col="Latitude"
     )
 
     rows = []
@@ -301,7 +304,7 @@ def scene_grid(state_df, camera_model, min_scene_gap_km=None):
         grp["heading"] = ground_track_heading(grp)
         grp["orbit"] = orbit_numbers(grp)
 
-        active = grp[grp["Observing Australia"]]
+        active = grp[grp["Observing AOI"]]
         if active.empty:
             continue
 

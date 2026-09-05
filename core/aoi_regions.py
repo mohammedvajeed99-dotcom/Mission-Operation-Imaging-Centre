@@ -55,12 +55,24 @@ def code_of(state_name):
     return OFFSHORE[1]
 
 
-def aoi_name(lat, lon):
+def aoi_name(lat, lon, region="australia"):
     """Human-readable AOI label for an image footprint centre.
 
-    Mission AOI is Australia, so the label names the state or territory
-    beneath the footprint, falling back to an offshore label at sea.
+    Names the real state/territory beneath the footprint (falling back to an
+    offshore label at sea) for both regions with a sourced subdivision
+    classifier: the simplified state rectangles above for Australia, and
+    core.india_states' simplified real state/UT polygons for India. A region
+    with neither (if a third AOI is ever added before its own subdivision
+    data exists) falls back to the plain region label rather than a
+    fabricated subdivision.
     """
+    if region == "india":
+        from core.india_states import aoi_name as india_aoi_name
+        return india_aoi_name(lat, lon)
+    if region != "australia":
+        from core.regions import REGION_LABELS
+        return REGION_LABELS.get(region, region.title())
+
     state = state_of(lat, lon)
     if state == OFFSHORE[0]:
         return state

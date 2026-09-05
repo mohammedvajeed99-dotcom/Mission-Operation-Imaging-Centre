@@ -1,0 +1,11 @@
+Target: ASC_80_12
+
+Observer: ASC_80_BTPM_OL20
+Start Time (UTC)            Stop Time (UTC)               Duration (s)         
+01 Jan 2026 07:27:49.290    01 Jan 2026 07:32:15.737      266.44734620    
+01 Jan 2026 19:34:06.248    01 Jan 2026 19:39:28.947      322.69824590    
+
+
+Number of events : 2
+
+

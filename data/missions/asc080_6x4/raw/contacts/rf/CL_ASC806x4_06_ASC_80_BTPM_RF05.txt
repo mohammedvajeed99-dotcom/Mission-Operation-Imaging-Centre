@@ -1,0 +1,12 @@
+Target: ASC_80_06
+
+Observer: ASC_80_BTPM_RF05
+Start Time (UTC)            Stop Time (UTC)               Duration (s)         
+01 Jan 2026 03:26:04.226    01 Jan 2026 03:35:21.027      556.80082280    
+01 Jan 2026 05:02:49.007    01 Jan 2026 05:07:12.550      263.54305919    
+01 Jan 2026 15:32:46.337    01 Jan 2026 15:42:28.661      582.32458737    
+
+
+Number of events : 3
+
+

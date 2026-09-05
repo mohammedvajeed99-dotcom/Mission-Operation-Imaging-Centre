@@ -72,6 +72,15 @@ function number(value, digits = 0) {
   });
 }
 
+/* AOI bounding box -> "68°E-98°E · 8°N-37°N" style label, from whatever box
+   the active mission's dashboard payload actually carries, instead of a
+   fixed Australia string. */
+function fmtAoiBox(box) {
+  if (!box) return "AOI";
+  const deg = (v, posSuffix, negSuffix) => `${number(Math.abs(v), 0)}°${v < 0 ? negSuffix : posSuffix}`;
+  return `${deg(box.lonMin, "E", "W")}–${deg(box.lonMax, "E", "W")} · ${deg(box.latMin, "N", "S")}–${deg(box.latMax, "N", "S")}`;
+}
+
 function KpiCard({ icon: Icon, label, value, format, detail, accent = COLORS.blue, index = 0, isAlert = false, badge = null, infoKey = null }) {
   const isNumeric = typeof value === "number" && Number.isFinite(value);
   return (
@@ -210,9 +219,9 @@ const AV_LAND_PATH = (() => {
   }
 })();
 
-const AOI_BOX = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
+const DEFAULT_AOI_BOX = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
 
-function MapCanvasBase({ children, legend, showAoi = false }) {
+function MapCanvasBase({ children, legend, showAoi = false, aoiBox = DEFAULT_AOI_BOX }) {
   const lonLines = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150];
   const latLines = [-60, -30, 0, 30, 60];
 
@@ -260,9 +269,9 @@ function MapCanvasBase({ children, legend, showAoi = false }) {
         {/* Optional AOI box */}
         {showAoi ? (
           <rect
-            x={projX(AOI_BOX.lonMin)} y={projY(AOI_BOX.latMax)}
-            width={projX(AOI_BOX.lonMax) - projX(AOI_BOX.lonMin)}
-            height={projY(AOI_BOX.latMin) - projY(AOI_BOX.latMax)}
+            x={projX(aoiBox.lonMin)} y={projY(aoiBox.latMax)}
+            width={projX(aoiBox.lonMax) - projX(aoiBox.lonMin)}
+            height={projY(aoiBox.latMin) - projY(aoiBox.latMax)}
             fill="none" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
           />
         ) : null}
@@ -286,6 +295,8 @@ export function ConstellationSummaryView({ data }) {
   const altitude = s.altitudeKm || c.altitudeKm || 536;
   const period = s.orbitalPeriodMin || 95.4;
   const histCount = (data?.analytics?.revisit?.histogram || []).reduce((sum, b) => sum + (b.count || 0), 0);
+  const aoiLabel = data?.mission?.aoiRegionLabel || "Australia";
+  const aoiBoxLabel = fmtAoiBox(data?.coverage?.aoi);
 
   return (
     <div className="contentGrid">
@@ -345,7 +356,7 @@ export function ConstellationSummaryView({ data }) {
           },
           {
             metric: "Mean / Best / Worst Revisit -- what is actually being averaged",
-            meaning: `These three numbers are NOT a sum, and not one number per satellite -- they are the mean, minimum and maximum of one pooled list built like this: a 15x12 grid of sample points is laid over the mission AOI (110-160E, 40S-10S); at each of those 180 points, every recorded satellite pass close enough to matter (within 1.5x half the camera's ground swath) is collected in time order, and the gap between each consecutive pair of passes is one "revisit interval". Every grid point contributes its own gaps to one shared pool -- for this run that pool holds ${histCount} intervals -- and Mean/Best/Worst Revisit are the mean, minimum and maximum of that whole pool, not of any single satellite or single location. A grid point with too few passes to compute even one gap contributes nothing (never a fabricated number).`,
+            meaning: `These three numbers are NOT a sum, and not one number per satellite -- they are the mean, minimum and maximum of one pooled list built like this: a 15x12 grid of sample points is laid over the mission's ${aoiLabel} AOI (${aoiBoxLabel}); at each of those 180 points, every recorded satellite pass close enough to matter (within 1.5x half the camera's ground swath) is collected in time order, and the gap between each consecutive pair of passes is one "revisit interval". Every grid point contributes its own gaps to one shared pool -- for this run that pool holds ${histCount} intervals -- and Mean/Best/Worst Revisit are the mean, minimum and maximum of that whole pool, not of any single satellite or single location. A grid point with too few passes to compute even one gap contributes nothing (never a fabricated number).`,
             formula: "pool = { t[i+1] - t[i] : consecutive passes at grid point p, over all 180 AOI grid points }; Mean = mean(pool), Best = min(pool), Worst = max(pool)",
           },
         ]}
@@ -385,7 +396,7 @@ export function RevisitAnalyticsView({ data }) {
       </div>
 
       <Panel index={5} title="World & AOI Revisit Heatmap" sub="Spatial access gap categorization based on GMAT sensor visibility passes" className="wide">
-        <RevisitHeatmapMap heatmap={r.heatmap || []} colorMap={colorMap} />
+        <RevisitHeatmapMap heatmap={r.heatmap || []} colorMap={colorMap} aoiBox={data?.coverage?.aoi} aoiLabel={data?.mission?.aoiRegionLabel || "Australia"} />
       </Panel>
 
       <Panel index={6} title="Revisit Time Frequency Distribution" sub="Every pooled gap, grouped into 8 time bins — the shape behind the 5 KPIs above" className="wide" action={<InfoPopover infoKey="revisit_distribution" />}>
@@ -820,7 +831,7 @@ export function DensityHeatmapsView({ data }) {
         items={[
           { metric: "Density Accumulation", meaning: "Each cell counts the real reported positions falling inside it, normalised against the busiest cell on that map.", formula: "Count(Cell) ÷ max(Count) × 100%" },
           { metric: "Pass Density", meaning: "Every sub-satellite position in the state report.", formula: "histogram2d( state Latitude, Longitude )" },
-          { metric: "Image Density", meaning: "Only the positions where the modelled sensor footprint actually intersected the Australia land boundary — the same test the coverage and observation analytics use.", formula: "histogram2d( positions where footprint_intersects_australia )" },
+          { metric: "Image Density", meaning: "Only the positions where the modelled sensor footprint actually intersected the mission's AOI land boundary — the same test the coverage and observation analytics use.", formula: "histogram2d( positions where footprint_intersects_region )" },
           { metric: "RF / Optical Contact Density", meaning: "Contact reports carry no coordinates, so each contact's [start, stop] window is intersected with that satellite's own state samples to recover where it was during the contact. Every plotted point is a real fix taken during a real contact.", formula: "histogram2d( state positions where Timestamp inside a contact window )" },
         ]}
       />
@@ -1002,15 +1013,13 @@ function fmtEpoch(ms) {
   return `${p(d.getDate())} ${mon} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} UTC`;
 }
 
-const ANIM_AOI = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
-
 /* Inline map constants matching MapCanvasBase (960×480) */
 const _W = MAP_W, _H = MAP_H;
 const _pX = (lon) => ((Number(lon) + 180) / 360) * _W;
 const _pY = (lat) => ((90 - Number(lat)) / 180) * _H;
 
 /* Inner ConstellationSim — faithfully ported from main.jsx */
-function InlineConstellationSim({ series = {}, satellites = [], range, height = 500 }) {
+function InlineConstellationSim({ series = {}, satellites = [], range, height = 500, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia" }) {
   const reduceMotion =
     typeof window !== "undefined" &&
     window.matchMedia &&
@@ -1100,8 +1109,8 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
   const heads = sats.map((o) => ({ ...o, head: headAt(o.pts) }));
   const overAoi = heads.filter(
     (o) =>
-      o.head.lon >= ANIM_AOI.lonMin && o.head.lon <= ANIM_AOI.lonMax &&
-      o.head.lat >= ANIM_AOI.latMin && o.head.lat <= ANIM_AOI.latMax
+      o.head.lon >= aoiBox.lonMin && o.head.lon <= aoiBox.lonMax &&
+      o.head.lat >= aoiBox.latMin && o.head.lat <= aoiBox.latMax
   ).length;
   const progress = span > 0 ? ((now - tMin) / span) * 100 : 0;
 
@@ -1169,9 +1178,9 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
 
           {/* AOI box */}
           <rect
-            x={_pX(ANIM_AOI.lonMin)} y={_pY(ANIM_AOI.latMax)}
-            width={_pX(ANIM_AOI.lonMax) - _pX(ANIM_AOI.lonMin)}
-            height={_pY(ANIM_AOI.latMin) - _pY(ANIM_AOI.latMax)}
+            x={_pX(aoiBox.lonMin)} y={_pY(aoiBox.latMax)}
+            width={_pX(aoiBox.lonMax) - _pX(aoiBox.lonMin)}
+            height={_pY(aoiBox.latMin) - _pY(aoiBox.latMax)}
             fill="rgba(251,191,36,.06)" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
           />
 
@@ -1186,8 +1195,8 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
             const x = _pX(o.head.lon);
             const y = _pY(o.head.lat);
             const inAoi =
-              o.head.lon >= ANIM_AOI.lonMin && o.head.lon <= ANIM_AOI.lonMax &&
-              o.head.lat >= ANIM_AOI.latMin && o.head.lat <= ANIM_AOI.latMax;
+              o.head.lon >= aoiBox.lonMin && o.head.lon <= aoiBox.lonMax &&
+              o.head.lat >= aoiBox.latMin && o.head.lat <= aoiBox.latMax;
             return (
               <g key={`h${o.name}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`}>
                 <circle r="5" fill={o.color} opacity="0.22" />
@@ -1196,7 +1205,7 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
                   <>
                     <circle r="7" fill="none" stroke="#fbbf24" strokeWidth="1.5" opacity="0.9" />
                     <text x="8" y="3" className="satTag" fill={o.color} fontSize="9" fontFamily="monospace">
-                      {o.name.replace("ASC_074_", "").replace("ASC_", "")}
+                      {o.name.replace(/^.*_(?=\d+$)/, "")}
                     </text>
                   </>
                 ) : null}
@@ -1215,7 +1224,7 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
         <div className="mapLegend">
           <span><i className="dot blue" /> {sats.length} satellites tracked</span>
           <span><i className="legLine" /> GMAT ground tracks</span>
-          <span><i className="aoiSwatch" /> AOI (Australia)</span>
+          <span><i className="aoiSwatch" /> AOI ({aoiLabel})</span>
           <span style={{ marginLeft: "auto", opacity: 0.5, fontSize: 10 }}>Source: GMAT 2025 telemetry</span>
         </div>
       </div>
@@ -1246,6 +1255,8 @@ export function ConstellationAnimationView({ data, state }) {
             satellites={state.satellites}
             range={state.range}
             height={500}
+            aoiBox={data?.coverage?.aoi || state?.aoi}
+            aoiLabel={data?.mission?.aoiRegionLabel || "Australia"}
           />
         ) : (
           <div style={{ padding: "60px 0", textAlign: "center", opacity: 0.45 }}>
@@ -1263,7 +1274,7 @@ export function ConstellationAnimationView({ data, state }) {
 /* -------------------------------------------------------------------------- */
 /* REVISIT HEATMAP – grid cells over real land topology                        */
 /* -------------------------------------------------------------------------- */
-function RevisitHeatmapMap({ heatmap, colorMap }) {
+function RevisitHeatmapMap({ heatmap, colorMap, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia" }) {
   /* Compute cell size from the grid step (fallback to 10 degrees) */
   const step = 10;
   const cellW = (step / 360) * MAP_W;
@@ -1275,6 +1286,7 @@ function RevisitHeatmapMap({ heatmap, colorMap }) {
   return (
     <MapCanvasBase
       showAoi
+      aoiBox={aoiBox}
       legend={
         <>
           <span><i style={{ display:"inline-block",width:14,height:10,background:"#34d399",opacity:.85,borderRadius:2,marginRight:5 }} /> &lt;30 min</span>
@@ -1282,7 +1294,7 @@ function RevisitHeatmapMap({ heatmap, colorMap }) {
           <span><i style={{ display:"inline-block",width:14,height:10,background:"#f97316",opacity:.85,borderRadius:2,marginRight:5 }} /> 1–2 hr</span>
           <span><i style={{ display:"inline-block",width:14,height:10,background:"#fb5c73",opacity:.85,borderRadius:2,marginRight:5 }} /> &gt;2 hr</span>
           <span><i style={{ display:"inline-block",width:14,height:10,background:"#94a3b8",opacity:.35,borderRadius:2,marginRight:5 }} /> Insufficient data</span>
-          <span><i style={{ display:"inline-block",width:14,height:12,border:"1.5px dashed #fbbf24",borderRadius:2,marginRight:5 }} /> AOI (Australia)</span>
+          <span><i style={{ display:"inline-block",width:14,height:12,border:"1.5px dashed #fbbf24",borderRadius:2,marginRight:5 }} /> AOI ({aoiLabel})</span>
         </>
       }
     >
@@ -1413,6 +1425,7 @@ function AnimatedGlobeCanvas({ stepIndex, totalSteps, data }) {
      direction/magnitude for other inclinations (e.g. this mission's 50 deg). */
   const raanDotRadS = -1.5 * meanMotionRadS * J2 * (EARTH_RADIUS_KM / semiMajor) ** 2 * Math.cos(inclRad);
   const { w: footprintPxW, h: footprintPxH } = footprintPx(altitudeKm);
+  const aoiBox = data?.coverage?.aoi || DEFAULT_AOI_BOX;
 
   /* elapsed seconds this animation frame represents;
      1 full loop = 2 full orbital periods */
@@ -1468,6 +1481,7 @@ function AnimatedGlobeCanvas({ stepIndex, totalSteps, data }) {
   return (
     <MapCanvasBase
       showAoi
+      aoiBox={aoiBox}
       legend={
         <>
           <span><i className="dot cyan" /> Plane 1–{planes} Satellites ({satCount} total)</span>
@@ -1569,7 +1583,7 @@ function AnimatedGlobeCanvas({ stepIndex, totalSteps, data }) {
       {positions.map((s) => {
         const sx = projX(s.lon);
         const sy = projY(s.lat);
-        const isInAoi = s.lon >= AOI_BOX.lonMin && s.lon <= AOI_BOX.lonMax && s.lat >= AOI_BOX.latMin && s.lat <= AOI_BOX.latMax;
+        const isInAoi = s.lon >= aoiBox.lonMin && s.lon <= aoiBox.lonMax && s.lat >= aoiBox.latMin && s.lat <= aoiBox.latMax;
         return (
           <g key={`sat${s.id}`}>
             <circle cx={sx} cy={sy} r="4" fill={s.color} opacity="0.25" />
@@ -1592,6 +1606,7 @@ function AnimatedGlobeCanvas({ stepIndex, totalSteps, data }) {
 export function MissionAnalyticsView({ data }) {
   const m = data?.analytics?.missionHealth || {};
   const unavailable = m.unavailable || [];
+  const aoiLabel = data?.mission?.aoiRegionLabel || "Australia";
   const pct = (v) => (v === null || v === undefined ? "—" : `${number(v, 2)}%`);
 
   return (
@@ -1603,7 +1618,7 @@ export function MissionAnalyticsView({ data }) {
         className="wide"
       >
         <div className="gaugeGrid">
-          {m.coveragePercent != null ? <GaugeCircle value={m.coveragePercent} label="Australia Coverage" color={COLORS.cyan} size={130} /> : null}
+          {m.coveragePercent != null ? <GaugeCircle value={m.coveragePercent} label={`${aoiLabel} Coverage`} color={COLORS.cyan} size={130} /> : null}
           {m.observationDutyPct != null ? <GaugeCircle value={m.observationDutyPct} label="Observation Duty" color={COLORS.green} size={130} /> : null}
           {m.rfLinkAvailabilityPct != null ? <GaugeCircle value={m.rfLinkAvailabilityPct} label="RF Link Uptime" color={COLORS.blue} size={130} /> : null}
           {m.opticalLinkAvailabilityPct != null ? <GaugeCircle value={m.opticalLinkAvailabilityPct} label="Optical Uptime" color={COLORS.violet} size={130} /> : null}
@@ -1615,7 +1630,7 @@ export function MissionAnalyticsView({ data }) {
           <table>
             <thead><tr><th>Indicator</th><th>Value</th><th>Derived from</th></tr></thead>
             <tbody>
-              <tr><td className="fontBold">Australia coverage</td><td className="mono textCyan">{pct(m.coveragePercent)}</td><td className="textDim">Grid cells covered by any sensor footprint (State Report)</td></tr>
+              <tr><td className="fontBold">{aoiLabel} coverage</td><td className="mono textCyan">{pct(m.coveragePercent)}</td><td className="textDim">Grid cells covered by any sensor footprint (State Report)</td></tr>
               <tr><td className="fontBold">Observation duty cycle</td><td className="mono textCyan">{pct(m.observationDutyPct)}</td><td className="textDim">Share of the window with ≥1 satellite observing the AOI</td></tr>
               <tr><td className="fontBold">RF link uptime</td><td className="mono textCyan">{pct(m.rfLinkAvailabilityPct)}</td><td className="textDim">Union of real RF contact windows ÷ analysis window</td></tr>
               <tr><td className="fontBold">Optical link uptime</td><td className="mono textCyan">{pct(m.opticalLinkAvailabilityPct)}</td><td className="textDim">Union of real optical contact windows ÷ analysis window</td></tr>
@@ -1797,7 +1812,7 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
   }
 
   const barData = rows.map((r) => ({
-    name: r.label.replace("ASC_074 — ", ""),
+    name: r.label.replace(/^[A-Za-z0-9_]+ — /, ""),
     coverage: r.coveragePercent,
     satellites: r.constellation?.configuredSatellites || 0,
     rfEvents: r.rfEvents,
@@ -1843,7 +1858,7 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
               <tr><td className="fontBold">Satellites per plane</td>{rows.map((r) => <td key={r.missionId} className="mono">{number(r.constellation?.satellitesPerPlane)}</td>)}</tr>
               <tr><td className="fontBold">Nominal orbit altitude</td>{rows.map((r) => <td key={r.missionId} className="mono">{number(r.constellation?.altitudeKm)} km</td>)}</tr>
               <tr><td className="fontBold">Inclination</td>{rows.map((r) => <td key={r.missionId} className="mono">{number(r.constellation?.inclinationDeg, 1)}°</td>)}</tr>
-              <tr><td className="fontBold">Australia coverage</td>{rows.map((r) => <td key={r.missionId} className="mono textCyan">{number(r.coveragePercent, 2)}%</td>)}</tr>
+              <tr><td className="fontBold">AOI coverage</td>{rows.map((r) => <td key={r.missionId} className="mono textCyan">{number(r.coveragePercent, 2)}%</td>)}</tr>
               <tr><td className="fontBold">Mean revisit</td>{rows.map((r) => <td key={r.missionId} className="mono">{r.meanRevisitMin != null ? `${number(r.meanRevisitMin, 1)} min` : "NA"}</td>)}</tr>
               <tr><td className="fontBold">Best / worst revisit</td>{rows.map((r) => <td key={r.missionId} className="mono">{r.bestRevisitMin != null ? `${number(r.bestRevisitMin, 1)} / ${number(r.worstRevisitMin, 1)} min` : "NA"}</td>)}</tr>
               <tr><td className="fontBold">Largest / mean gap</td>{rows.map((r) => <td key={r.missionId} className="mono">{r.largestGapMin != null ? `${number(r.largestGapMin, 1)} / ${number(r.meanGapMin, 1)} min` : "NA"}</td>)}</tr>
@@ -1857,7 +1872,7 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
         </div>
       </Panel>
 
-      <Panel index={1} title="Australia Coverage vs Satellite Count" sub="Each mission's real computed coverage percentage against its configured fleet size" className="wide">
+      <Panel index={1} title="AOI Coverage vs Satellite Count" sub="Each mission's real computed coverage percentage against its configured fleet size" className="wide">
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={barData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} />
@@ -1888,8 +1903,8 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
 
       <MethodNote
         items={[
-          { metric: "Australia coverage", meaning: "Grid-cell coverage percentage from cumulative_australia_coverage(), computed independently per mission from its own state history.", formula: "Covered cells / total AOI grid cells × 100" },
-          { metric: "Revisit / gap stats", meaning: "Derived per-mission from real satellite ground-track samples over the Australia AOI grid.", formula: "Time between consecutive AOI passes" },
+          { metric: "AOI coverage", meaning: "Grid-cell coverage percentage from cumulative_region_coverage(), computed independently per mission from its own state history and its own AOI region.", formula: "Covered cells / total AOI grid cells × 100" },
+          { metric: "Revisit / gap stats", meaning: "Derived per-mission from real satellite ground-track samples over that mission's own AOI grid.", formula: "Time between consecutive AOI passes" },
           { metric: "RF / Optical / Eclipse events", meaning: "Direct counts parsed from each mission's own GMAT Contact Locator and Eclipse Locator report files.", formula: "Row count in the mission's parsed report" },
         ]}
       />
@@ -1902,13 +1917,13 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
 /* -------------------------------------------------------------------------- */
 
 const GUIDE_SECTIONS = [
-  { title: "Coverage", body: "How much observation/coverage opportunity is available. A satellite \"covers\" a location when its sensor footprint passes over it — Coverage % is the share of the Australia analysis grid that has been passed over at least once during the simulation window." },
+  { title: "Coverage", body: "How much observation/coverage opportunity is available. A satellite \"covers\" a location when its sensor footprint passes over it — Coverage % is the share of the mission's AOI analysis grid that has been passed over at least once during the simulation window." },
   { title: "Revisit", body: "How frequently the target can be observed again. Revisit time is the interval between two consecutive valid observation opportunities over the same location — shorter is better for time-sensitive monitoring." },
   { title: "Contact", body: "When the spacecraft can communicate with the ground station. A contact window opens once the spacecraft rises above the station's minimum elevation angle and closes when it drops back below it." },
   { title: "Eclipse", body: "When the spacecraft is in Earth's shadow. Umbra is full shadow (no sunlight at all); Penumbra is partial shadow. No sunlight means no solar power generation and no illuminated imaging during that period." },
   { title: "Observation", body: "When imaging conditions are satisfied — the sensor footprint is over the Area of Interest and the satellite is available to image it. Observation Opportunities are the individual windows where this is true." },
   { title: "Gap", body: "A period without a valid opportunity — for coverage, the longest stretch of time a location goes unobserved; for contact, the longest stretch without a ground link. Large gaps are the main limitation to flag when evaluating a constellation design." },
-  { title: "AOI", body: "Area of Interest — the geographic region this mission's analysis is scoped to. For ASC_074 that is mainland Australia and Tasmania, defined once in the mission configuration and reused everywhere (coverage, revisit, observation opportunities) so every number stays comparable." },
+  { title: "AOI", body: "Area of Interest — the geographic region this mission's analysis is scoped to (e.g. mainland Australia and Tasmania for the ASC_074 missions, or India for the ASC_080 missions), defined once in the mission configuration and reused everywhere (coverage, revisit, observation opportunities) so every number stays comparable." },
 ];
 
 export function DashboardGuideView({ glossaryMap = {} }) {

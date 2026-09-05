@@ -34,3 +34,11 @@ data/products/
 data/products2/
 
 .DS_Store
+
+# Claude Code project state. launch.json is real, shared dev-server config
+# and stays tracked; everything else here is local-machine scratch (and has
+# at least once accidentally held a stray API token and leftover product
+# metadata under misleading filenames -- never assume a file under here is
+# safe to commit just because it looks like config).
+.claude/*
+!.claude/launch.json

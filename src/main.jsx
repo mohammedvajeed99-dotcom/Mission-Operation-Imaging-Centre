@@ -133,6 +133,15 @@ const asMinutes = (v) => `${number(v, 1)} min`;
 const asHours = (v) => `${number(v, 2)} h`;
 const asPct = (v) => `${number(v, 1)}%`;
 
+/* AOI bounding box -> "68°E-98°E · 8°N-37°N" style label, from whatever box
+   the active mission's dashboard payload actually carries (core.regions
+   .aoi_box_for_mission), instead of a fixed Australia string. */
+function fmtAoiBox(box) {
+  if (!box) return "AOI";
+  const deg = (v, posSuffix, negSuffix) => `${number(Math.abs(v), 0)}°${v < 0 ? negSuffix : posSuffix}`;
+  return `${deg(box.lonMin, "E", "W")}–${deg(box.lonMax, "E", "W")} · ${deg(box.latMin, "N", "S")}–${deg(box.latMax, "N", "S")}`;
+}
+
 function dateLabel(value) {
   if (!value) return "NA";
   const date = new Date(value);
@@ -190,10 +199,10 @@ const LAND_PATH = (() => {
   }
 })();
 
-const AOI_BOX = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
+const DEFAULT_AOI_BOX = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
 
 /* Shared map base: ocean, graticule, land silhouette, AOI box */
-function MapBase({ showAoi = true }) {
+function MapBase({ showAoi = true, aoiBox = DEFAULT_AOI_BOX }) {
   const lonLines = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150];
   const latLines = [-60, -30, 0, 30, 60];
   return (
@@ -215,10 +224,10 @@ function MapBase({ showAoi = true }) {
       <path d={LAND_PATH} className="landMass" />
       {showAoi ? (
         <rect
-          x={projX(AOI_BOX.lonMin)}
-          y={projY(AOI_BOX.latMax)}
-          width={projX(AOI_BOX.lonMax) - projX(AOI_BOX.lonMin)}
-          height={projY(AOI_BOX.latMin) - projY(AOI_BOX.latMax)}
+          x={projX(aoiBox.lonMin)}
+          y={projY(aoiBox.latMax)}
+          width={projX(aoiBox.lonMax) - projX(aoiBox.lonMin)}
+          height={projY(aoiBox.latMin) - projY(aoiBox.latMax)}
           className="aoiRect"
         />
       ) : null}
@@ -250,7 +259,7 @@ function fmtEpoch(ms) {
   return `${p(d.getDate())} ${mon} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-function ConstellationSim({ series = {}, satellites = [], range, height = 520, defaultWindowMs = 60 * 60000 }) {
+function ConstellationSim({ series = {}, satellites = [], range, height = 520, defaultWindowMs = 60 * 60000, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia" }) {
   const sats = React.useMemo(
     () =>
       satellites
@@ -337,7 +346,7 @@ function ConstellationSim({ series = {}, satellites = [], range, height = 520, d
 
   const heads = sats.map((o) => ({ ...o, head: headAt(o.pts) }));
   const overAoi = heads.filter(
-    (o) => o.head.lon >= AOI_BOX.lonMin && o.head.lon <= AOI_BOX.lonMax && o.head.lat >= AOI_BOX.latMin && o.head.lat <= AOI_BOX.latMax
+    (o) => o.head.lon >= aoiBox.lonMin && o.head.lon <= aoiBox.lonMax && o.head.lat >= aoiBox.latMin && o.head.lat <= aoiBox.latMax
   ).length;
 
   return (
@@ -382,19 +391,19 @@ function ConstellationSim({ series = {}, satellites = [], range, height = 520, d
               <stop offset="100%" stopColor="rgba(6,16,32,.9)" />
             </radialGradient>
           </defs>
-          <MapBase />
+          <MapBase aoiBox={aoiBox} />
           {sats.map((o) => (
             <path key={o.name} d={trail(o.pts)} fill="none" stroke={o.color} strokeWidth="1.1" strokeOpacity="0.85" strokeLinejoin="round" />
           ))}
           {heads.map((o) => {
             const x = projX(o.head.lon);
             const y = projY(o.head.lat);
-            const inAoi = o.head.lon >= AOI_BOX.lonMin && o.head.lon <= AOI_BOX.lonMax && o.head.lat >= AOI_BOX.latMin && o.head.lat <= AOI_BOX.latMax;
+            const inAoi = o.head.lon >= aoiBox.lonMin && o.head.lon <= aoiBox.lonMax && o.head.lat >= aoiBox.latMin && o.head.lat <= aoiBox.latMax;
             return (
               <g key={`h${o.name}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`}>
                 <circle r="4.5" fill={o.color} opacity="0.28" />
                 <circle r="2.1" fill="#fff" stroke={o.color} strokeWidth="1.1" />
-                {inAoi ? <text x="6" y="3" className="satTag" fill={o.color}>{o.name.replace("ASC_074_", "")}</text> : null}
+                {inAoi ? <text x="6" y="3" className="satTag" fill={o.color}>{o.name.replace(/^.*_(?=\d+$)/, "")}</text> : null}
                 <title>{`${o.name} · ${number(o.head.lat, 2)}°, ${number(o.head.lon, 2)}°`}</title>
               </g>
             );
@@ -404,7 +413,7 @@ function ConstellationSim({ series = {}, satellites = [], range, height = 520, d
         <div className="mapLegend">
           <span><i className="dot blue" /> {sats.length} satellites</span>
           <span><i className="legLine" /> ground tracks</span>
-          <span><i className="aoiSwatch" /> AOI (Australia)</span>
+          <span><i className="aoiSwatch" /> AOI ({aoiLabel})</span>
         </div>
       </div>
     </div>
@@ -1041,7 +1050,7 @@ function Ticker({ data }) {
     m?.eclipseEvents != null && ["ECLIPSE", `${number(m.eclipseEvents)} events`],
     m?.stateRows != null && ["STATE", `${compact(m.stateRows)} samples`],
     data?.coverage?.percent != null && ["COVERAGE", `${number(data.coverage.percent, 2)}%`],
-    ["AOI", "110°E–160°E · 10°S–40°S"],
+    data?.coverage?.aoi != null && ["AOI", fmtAoiBox(data.coverage.aoi)],
   ].filter(Boolean);
 
   const row = items.map(([k, v]) => (
@@ -1217,8 +1226,9 @@ function WorldOrbitMap({ positions = [], tracks = [], maxTracks = 48 }) {
   );
 }
 
-/* Coverage map — real Australia polygon, cells share the exact projection */
+/* Coverage map — real AOI land polygon, cells share the exact projection */
 function AustraliaCoverageMap({ cells = [], outline = [], tasmania = [], aoi, percent }) {
+  const aoiLabelText = aoi ? `AOI ${fmtAoiBox(aoi)}` : "AOI";
   const W = 780;
   const { project, H, aoiRect } = React.useMemo(() => {
     const pts = [...outline, ...tasmania];
@@ -1252,7 +1262,7 @@ function AustraliaCoverageMap({ cells = [], outline = [], tasmania = [], aoi, pe
 
   return (
     <div className="coverageMap">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Australia coverage cells">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="AOI coverage cells">
         <defs>
           <pattern id="covGrid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(120,150,220,.07)" strokeWidth="1" />
@@ -1264,7 +1274,7 @@ function AustraliaCoverageMap({ cells = [], outline = [], tasmania = [], aoi, pe
           <g>
             <rect x={aoiRect.x} y={aoiRect.y} width={aoiRect.w} height={aoiRect.h} className="aoiRect" />
             <text x={Math.max(aoiRect.x, 0) + 8} y={Math.max(aoiRect.y, 0) + 16} className="aoiLabel">
-              AOI 110°E–160°E · 10°S–40°S
+              {aoiLabelText}
             </text>
           </g>
         ) : null}
@@ -1334,7 +1344,7 @@ function NoEclipseNote({ rows }) {
 
   return (
     <p className="panelFootnote">
-      <strong>{noEclipse.length} of {rows.length} satellites</strong> show no eclipse bar above ({noEclipse.map((r) => r.satellite.replace("ASC_074_", "S")).join(", ")}).
+      <strong>{noEclipse.length} of {rows.length} satellites</strong> show no eclipse bar above ({noEclipse.map((r) => r.satellite.replace(/^.*_(?=\d+$)/, "S")).join(", ")}).
       {byPlane.size ? (
         <> That is not missing data: {[...byPlane.entries()].sort((a, b) => a[0] - b[0]).map(([plane, sats], i, arr) => (
           <span key={plane}>{i > 0 ? (i === arr.length - 1 ? " and " : ", ") : ""}<strong>Plane {plane}</strong> ({sats.length} satellite{sats.length === 1 ? "" : "s"})</span>
@@ -1570,6 +1580,7 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const mission = data.mission || {};
+  const aoiLabel = mission.aoiRegionLabel || "Australia";
   const c = data.constellation || {};
   const m = data.metrics || {};
   const a = data.analytics || {};
@@ -1652,7 +1663,7 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
   kvTable([
     ["Mission", mission.name], ["Configuration", `${c.planes} × ${c.satellitesPerPlane}`],
     ["Total Satellites", c.configuredSatellites], ["Altitude (km)", c.altitudeKm], ["Inclination (deg)", c.inclinationDeg],
-    ["Area of Interest", mission.aoi], ["Australia Coverage (%)", number(data.coverage?.percent, 2)],
+    ["Area of Interest", mission.aoi], [`${aoiLabel} Coverage (%)`, number(data.coverage?.percent, 2)],
     ["Mean Revisit (min)", number(summary.meanRevisitMin, 1)], ["Largest Coverage Gap (min)", number(gap.largestGapMin, 1)],
     ["RF Contact Events", m.rfEvents], ["Optical Contact Events", m.opticalEvents], ["Eclipse Events", m.eclipseEvents],
   ]);
@@ -1666,7 +1677,7 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
 
   header("3. Coverage Analysis", "Source: GMAT State Report (ground track) + camera swath model");
   kvTable([
-    ["Australia Coverage (%)", number(data.coverage?.percent, 2)],
+    [`${aoiLabel} Coverage (%)`, number(data.coverage?.percent, 2)],
     ["Covered Cells", data.coverage?.coveredCells], ["Total Cells", data.coverage?.totalCells],
   ]);
 
@@ -1756,7 +1767,7 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
   header("17. Conclusions", "Summary of findings for this mission");
   const conclusionLines = [
     `This report covers the ${mission.name} mission in its ${c.planes} × ${c.satellitesPerPlane} (${c.configuredSatellites}-satellite) configuration.`,
-    `Australia coverage over the analysis window was ${number(data.coverage?.percent, 2)}%, with a mean revisit time of ${number(summary.meanRevisitMin, 1)} minutes.`,
+    `${aoiLabel} coverage over the analysis window was ${number(data.coverage?.percent, 2)}%, with a mean revisit time of ${number(summary.meanRevisitMin, 1)} minutes.`,
     `The largest single coverage gap observed in the analysis grid was ${number(gap.largestGapMin, 1)} minutes${gap.dataBearingCells ? ` (based on ${gap.dataBearingCells} of ${gap.totalCells} grid cells with sufficient real data)` : ""}.`,
     `The RF ground segment recorded ${m.rfEvents} contacts (${number(m.rfMinutes, 1)} minutes total); the optical segment recorded ${m.opticalEvents} contacts (${number(m.opticalMinutes, 1)} minutes total).`,
     observations[0] || "",
@@ -1837,7 +1848,7 @@ function SatSelector({ satellites = [], selected = [], onToggle, onSelectAll }) 
             style={{ "--c": hueFor(selected.indexOf(sat) >= 0 ? selected.indexOf(sat) : idx) }}
           >
             <i />
-            {sat.replace("ASC_074_", "")}
+            {sat.replace(/^.*_(?=\d+$)/, "")}
           </button>
         ))}
       </div>
@@ -1882,7 +1893,7 @@ function Overview({ data, state }) {
       </div>
       <Panel index={5} title="Constellation Simulator" sub="Animated ground tracks over the analysis window · play, scrub and set the trail length" className="wide">
         {state ? (
-          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} />
+          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} aoiBox={state.aoi || data.coverage.aoi} aoiLabel={data.mission.aoiRegionLabel} />
         ) : (
           <WorldOrbitMap positions={data.charts.latestPositions} tracks={data.charts.tracks} />
         )}
@@ -1909,12 +1920,12 @@ function Overview({ data, state }) {
 }
 
 const COVERAGE_METHODS = [
-  { metric: "Australia coverage %", meaning: "Australia is discretized into a 1° lat/lon grid over the mainland + Tasmania land boundary. A cell counts as covered if any of the 48 satellites' sub-points came within half the modeled ground swath of the cell center.", formula: "% = latitude-weighted covered cells ÷ total land cells × 100" },
-  { metric: "All-sat observed", meaning: "Sum of each of the 48 satellites' own 'observing Australia' time. Overlapping satellites are each counted, so this can exceed the mission duration.", formula: "Σ (per-satellite Total Observation Seconds)" },
-  { metric: "Max simultaneous", meaning: "The highest number of satellites (out of 48) flagged as observing Australia at the same shared timestamp.", formula: "max(count of satellites observing at time t)" },
-  { metric: "Observation Windows (table column)", meaning: "A 'window' is one continuous pass: it opens the moment a satellite's sensor footprint first touches the Australia AOI, and closes the moment it leaves (a gap longer than 1.5x that satellite's normal reporting interval). A satellite that crosses Australia three separate times in the analysis window has 3 windows, each with its own start, end and duration -- they are never merged.", formula: "count of continuous in-AOI intervals per satellite, from core.observation_duration.observation_duration_analysis()" },
-  { metric: "Avg window (table column)", meaning: "The mean length of that satellite's own passes -- add up every window's duration and divide by how many windows it had. A satellite with a short average window sees Australia only glancingly each time (e.g. a corner of its swath clips the coast); a long average window means a fuller crossing.", formula: "mean(per-window Observation Duration) for that satellite" },
-  { metric: "Duty % (KPI and table column) -- what 'duty' means here", meaning: "The literal question this answers is: 'of all the time in the analysis window, what fraction did this satellite (or, for the KPI card, the whole constellation) actually spend observing Australia?' 75% duty for the constellation KPI means Australia had at least one satellite over it for three-quarters of the day; a satellite-row duty of 2% means that satellite personally spent about 29 minutes of the 24-hour window over the AOI, and the rest of its orbit was elsewhere on Earth (which is expected and correct -- a single LEO satellite is over any one country only a small fraction of each day). The constellation KPI is nearly always far higher than any single satellite's row, because different satellites cover the gap.", formula: "Satellite row: (that satellite's Total Observation Seconds ÷ its own simulated seconds) × 100. Constellation KPI: (union of every satellite's observing intervals ÷ whole analysis window) × 100 -- overlapping coverage is only counted once." },
+  { metric: "AOI coverage %", meaning: "The mission's AOI land area is discretized into a 1° lat/lon grid over its mainland (+ Tasmania for the Australia AOI) land boundary. A cell counts as covered if any of the 48 satellites' sub-points came within half the modeled ground swath of the cell center.", formula: "% = latitude-weighted covered cells ÷ total land cells × 100" },
+  { metric: "All-sat observed", meaning: "Sum of each of the 48 satellites' own 'observing AOI' time. Overlapping satellites are each counted, so this can exceed the mission duration.", formula: "Σ (per-satellite Total Observation Seconds)" },
+  { metric: "Max simultaneous", meaning: "The highest number of satellites (out of 48) flagged as observing the AOI at the same shared timestamp.", formula: "max(count of satellites observing at time t)" },
+  { metric: "Observation Windows (table column)", meaning: "A 'window' is one continuous pass: it opens the moment a satellite's sensor footprint first touches the AOI, and closes the moment it leaves (a gap longer than 1.5x that satellite's normal reporting interval). A satellite that crosses the AOI three separate times in the analysis window has 3 windows, each with its own start, end and duration -- they are never merged.", formula: "count of continuous in-AOI intervals per satellite, from core.observation_duration.observation_duration_analysis()" },
+  { metric: "Avg window (table column)", meaning: "The mean length of that satellite's own passes -- add up every window's duration and divide by how many windows it had. A satellite with a short average window sees the AOI only glancingly each time (e.g. a corner of its swath clips the coast); a long average window means a fuller crossing.", formula: "mean(per-window Observation Duration) for that satellite" },
+  { metric: "Duty % (KPI and table column) -- what 'duty' means here", meaning: "The literal question this answers is: 'of all the time in the analysis window, what fraction did this satellite (or, for the KPI card, the whole constellation) actually spend observing the AOI?' 75% duty for the constellation KPI means the AOI had at least one satellite over it for three-quarters of the day; a satellite-row duty of 2% means that satellite personally spent about 29 minutes of the 24-hour window over the AOI, and the rest of its orbit was elsewhere on Earth (which is expected and correct -- a single LEO satellite is over any one country only a small fraction of each day). The constellation KPI is nearly always far higher than any single satellite's row, because different satellites cover the gap.", formula: "Satellite row: (that satellite's Total Observation Seconds ÷ its own simulated seconds) × 100. Constellation KPI: (union of every satellite's observing intervals ÷ whole analysis window) × 100 -- overlapping coverage is only counted once." },
 ];
 
 const COVERAGE_TABLE_COLUMNS = [
@@ -1927,6 +1938,7 @@ const COVERAGE_TABLE_COLUMNS = [
 
 function CoverageView({ data }) {
   const coverage = data.coverage;
+  const aoiLabel = data.mission.aoiRegionLabel || "Australia";
   const satellites = React.useMemo(() => coverage.observation.perSatellite.map((r) => r.satellite).sort(), [coverage.observation.perSatellite]);
   const [selected, toggle, selectAll] = useSatSelection(satellites);
   const filteredContribution = coverage.contribution.filter((r) => selected.includes(r.satellite));
@@ -1935,12 +1947,12 @@ function CoverageView({ data }) {
   return (
     <div className="contentGrid">
       <div className="kpiGrid four">
-        <KpiCard index={0} icon={Globe2} label="Australia coverage" value={coverage.percent} format={(v) => `${number(v, 2)}%`} detail={`${number(coverage.coveredCells)} of ${number(coverage.totalCells)} land cells, all ${number(data.constellation.configuredSatellites)} satellites`} accent={COLORS.cyan} infoKey="coverage_percent" />
+        <KpiCard index={0} icon={Globe2} label={`${aoiLabel} coverage`} value={coverage.percent} format={(v) => `${number(v, 2)}%`} detail={`${number(coverage.coveredCells)} of ${number(coverage.totalCells)} land cells, all ${number(data.constellation.configuredSatellites)} satellites`} accent={COLORS.cyan} infoKey="coverage_percent" />
         <KpiCard index={1} icon={Activity} label="All-sat observed" value={coverage.observation.overall["Summed Satellite Observation Time"] || "NA"} detail={`combined effort-time summed across all ${number(data.constellation.configuredSatellites)} satellites`} accent={COLORS.green} />
         <KpiCard index={2} icon={Satellite} label="Max simultaneous" value={coverage.observation.overall["Maximum Simultaneous Observing Satellites"] || 0} detail={`of ${number(data.constellation.configuredSatellites)} satellites, observing at the same instant`} accent={COLORS.blue} />
         <KpiCard index={3} icon={Gauge} label="Observation duty" value={Number(coverage.observation.overall["Overall Observation Duty Cycle (%)"]) || 0} format={(v) => `${number(v, 2)}%`} detail={`constellation-wide timeline, ≥1 of ${number(data.constellation.configuredSatellites)} satellites`} accent={COLORS.amber} infoKey="duty_cycle" />
       </div>
-      <Panel index={4} title="Coverage Cell Map" sub="Analysis cells over the Australia land boundary, inside the mission AOI" className="wide">
+      <Panel index={4} title="Coverage Cell Map" sub={`Analysis cells over the ${aoiLabel} land boundary, inside the mission AOI`} className="wide">
         <AustraliaCoverageMap
           cells={coverage.cells}
           outline={coverage.outline}
@@ -1964,8 +1976,8 @@ function CoverageView({ data }) {
         action={
           <PdfButton
             mission={data.mission}
-            title="Australia Observation Duration"
-            subtitle="Per-satellite observation windows over the Australia AOI"
+            title={`${aoiLabel} Observation Duration`}
+            subtitle={`Per-satellite observation windows over the ${aoiLabel} AOI`}
             columns={COVERAGE_TABLE_COLUMNS}
             rows={filteredObs}
             fileName="observation_duration"
@@ -1975,7 +1987,7 @@ function CoverageView({ data }) {
       >
         <DataTable rows={filteredObs.slice(0, 24)} columns={COVERAGE_TABLE_COLUMNS} />
         <p className="panelFootnote">
-          <strong>Windows</strong> = separate passes over Australia (a satellite crossing three times has 3, each timed independently). <strong>Avg window</strong> = the mean length of that satellite&apos;s own passes. <strong>Duty %</strong> = the share of the whole day that satellite spent over Australia at all -- a few percent per satellite is expected for a single LEO craft; see &quot;How these analytics are calculated&quot; below for the exact formulas and why the constellation-wide Duty % KPI above is so much higher.
+          <strong>Windows</strong> = separate passes over {aoiLabel} (a satellite crossing three times has 3, each timed independently). <strong>Avg window</strong> = the mean length of that satellite&apos;s own passes. <strong>Duty %</strong> = the share of the whole day that satellite spent over {aoiLabel} at all -- a few percent per satellite is expected for a single LEO craft; see &quot;How these analytics are calculated&quot; below for the exact formulas and why the constellation-wide Duty % KPI above is so much higher.
         </p>
       </Panel>
       <MethodNote items={swap48Methods(COVERAGE_METHODS, data.constellation.configuredSatellites)} />
@@ -2004,7 +2016,7 @@ function NoticeBanner({ icon: Icon, tone = COLORS.cyan, title, children, index =
 const IMAGING_METHODS = [
   { metric: "Ground swath / GSD", meaning: "Derived purely from camera geometry (focal length, sensor size, image width) and orbit altitude — not assumed.", formula: "HFOV = 2·atan(sensor width ÷ 2f); Swath = 2·altitude·tan(HFOV/2); GSD = Swath×1000 ÷ image width (px)" },
   { metric: "Ground speed", meaning: "Median ground-track speed per satellite, from consecutive fixes in Satellite_State_History.xlsx.", formula: "haversine distance between consecutive Lat/Lon fixes ÷ Δt, median per satellite, clipped to plausible LEO speeds" },
-  { metric: "Imaged distance", meaning: "How far along its ground track each satellite imaged while the sensor was ON (i.e. over the Australia AOI).", formula: "ground speed (km/s) × observed time over AOI (s)" },
+  { metric: "Imaged distance", meaning: "How far along its ground track each satellite imaged while the sensor was ON (i.e. over the mission's AOI).", formula: "ground speed (km/s) × observed time over AOI (s)" },
   { metric: "Imaged area (fleet-effort)", meaning: "Sum across all satellites — overlapping ground tracks are each counted, so this is total imaging effort, not a unique-area figure.", formula: "Σ (imaged distance × ground swath), all satellites" },
   { metric: "Estimated scenes", meaning: "A pushbroom sensor captures a continuous strip, not discrete photos. This is an engineering estimate of equivalent scene count, using the camera's own along-track frame footprint.", formula: "imaged distance ÷ (GSD × Image Height px ÷ 1000)" },
 ];
@@ -2029,7 +2041,7 @@ function PayloadImagingView({ data, state }) {
     .slice()
     .sort((a, b) => (b.estimatedScenes || 0) - (a.estimatedScenes || 0))
     .slice(0, 24)
-    .map((r) => ({ ...r, satellite: r.satellite.replace("ASC_074_", "S") }));
+    .map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }));
 
   // The window these figures cover, read from the same state telemetry range
   // shown elsewhere (State Explorer, etc.) rather than assumed to be "a day" --
@@ -2083,7 +2095,7 @@ function PayloadImagingView({ data, state }) {
           <PdfButton
             mission={data.mission}
             title="Captured Imagery Report"
-            subtitle="Estimated imaging distance, area and scene count per satellite over the Australia AOI"
+            subtitle={`Estimated imaging distance, area and scene count per satellite over the ${data.mission.aoiRegionLabel || "Australia"} AOI`}
             columns={IMAGING_TABLE_COLUMNS}
             rows={filtered}
             fileName="captured_imagery_report"
@@ -2125,10 +2137,10 @@ function PayloadImagingView({ data, state }) {
 /* ---------------------------- Global Coverage ---------------------------- */
 
 const GLOBAL_METHODS = [
-  { metric: "Region classification", meaning: "Each state sample's sub-satellite Lat/Lon is bucketed into one of 14 coarse geographic regions using ordered bounding boxes — an engineering approximation for situational awareness, not authoritative GIS (same approach as the Australia land-boundary polygon).", formula: "first matching region wins, in priority order; unmatched points fall into 'Open Ocean / Transit'" },
+  { metric: "Region classification", meaning: "Each state sample's sub-satellite Lat/Lon is bucketed into one of 14 coarse geographic regions using ordered bounding boxes — an engineering approximation for situational awareness, not authoritative GIS (same approach as the mission's AOI land-boundary polygon).", formula: "first matching region wins, in priority order; unmatched points fall into 'Open Ocean / Transit'" },
   { metric: "Global reach (latitude span)", meaning: "The highest and lowest latitude any satellite's sub-point reached over the full analysis window — set by orbital inclination, not by AOI targeting.", formula: "min / max(Latitude) across all 48 satellites, all timestamps" },
-  { metric: "AOI focus %", meaning: "Share of all fleet state samples (48 satellites × ~924 samples/day) whose sub-point falls inside the Australia AOI rectangle.", formula: "samples inside 110°E–160°E,10°S–40°S ÷ total fleet samples × 100" },
-  { metric: "Global (non-AOI) share", meaning: "The complement — time the constellation spends over the rest of the globe. Sensors are capable of imaging here but are intentionally kept OFF to conserve power for the Australia mission (see K2 / K7).", formula: "100 − AOI focus %" },
+  { metric: "AOI focus %", meaning: "Share of all fleet state samples (48 satellites × ~924 samples/day) whose sub-point falls inside the mission's AOI rectangle.", formula: "samples inside the AOI bounds ÷ total fleet samples × 100" },
+  { metric: "Global (non-AOI) share", meaning: "The complement — time the constellation spends over the rest of the globe. Sensors are capable of imaging here but are intentionally kept OFF to conserve power for the mission's AOI (see K2 / K7).", formula: "100 − AOI focus %" },
 ];
 
 const GLOBAL_TABLE_COLUMNS = [
@@ -2151,7 +2163,7 @@ function RegionBars({ rows = [] }) {
         <Tooltip formatter={(v) => `${number(v, 2)}%`} cursor={{ fill: "rgba(34,211,238,.06)" }} />
         <Bar dataKey="percent" radius={[0, 4, 4, 0]}>
           {rows.map((row, index) => (
-            <Cell key={index} fill={row.region.startsWith("Australia") ? COLORS.cyan : hueFor(index + 3)} />
+            <Cell key={index} fill={row.region.includes("(mission focus)") ? COLORS.cyan : hueFor(index + 3)} />
           ))}
         </Bar>
       </BarChart>
@@ -2161,6 +2173,9 @@ function RegionBars({ rows = [] }) {
 
 function GlobalCoverageView({ data, state }) {
   const global = data.globalCoverage;
+  const aoiLabel = data.mission.aoiRegionLabel || "Australia";
+  const aoiBox = data.coverage.aoi || DEFAULT_AOI_BOX;
+  const aoiBoxLabel = fmtAoiBox(aoiBox);
   const satellites = React.useMemo(() => global.perSatellite.map((r) => r.satellite).sort(), [global.perSatellite]);
   const [selected, toggle, selectAll] = useSatSelection(satellites, 12);
   const filtered = global.perSatellite.filter((r) => selected.includes(r.satellite));
@@ -2170,14 +2185,14 @@ function GlobalCoverageView({ data, state }) {
       <div className="kpiGrid four">
         <KpiCard index={0} icon={Compass} label="Global reach" value={`±${number(Math.max(Math.abs(global.fleet.minLatitude), Math.abs(global.fleet.maxLatitude)), 1)}°`} detail={`latitude span, all ${global.fleet.satelliteCount} satellites · set by 50° inclination`} accent={COLORS.blue} />
         <KpiCard index={1} icon={Globe2} label="Regions traversed" value={global.fleet.regionsTraversed} detail="of 14 approximate geographic buckets, fleet-wide" accent={COLORS.cyan} />
-        <KpiCard index={2} icon={Gauge} label="AOI focus" value={Number(global.fleet.aoiSharePercent)} format={(v) => `${number(v, 2)}%`} detail="share of fleet time actually powered, over Australia" accent={COLORS.green} />
+        <KpiCard index={2} icon={Gauge} label="AOI focus" value={Number(global.fleet.aoiSharePercent)} format={(v) => `${number(v, 2)}%`} detail={`share of fleet time actually powered, over ${aoiLabel}`} accent={COLORS.green} />
         <KpiCard index={3} icon={Aperture} label="Global capability, unused" value={Number(global.fleet.globalSharePercent)} format={(v) => `${number(v, 2)}%`} detail="time over the rest of the globe — sensors intentionally OFF" accent={COLORS.amber} />
       </div>
 
-      <NoticeBanner icon={Compass} tone={COLORS.amber} title="Global capability, Australia-only focus" index={4}>
+      <NoticeBanner icon={Compass} tone={COLORS.amber} title={`Global capability, ${aoiLabel}-only focus`} index={4}>
         Every craft in the fleet is physically capable of observing the whole globe as it orbits — the ground
         tracks below sweep from pole to pole across every longitude. Even so, the mission intentionally powers the
-        sensor only while a craft is over the Australia AOI (110°E–160°E, 10°S–40°S): the other{" "}
+        sensor only while a craft is over the {aoiLabel} AOI ({aoiBoxLabel}): the other{" "}
         {number(global.fleet.globalSharePercent, 1)}% of each orbit is flown with the payload OFF, trading global
         imaging capability for a focused power and data budget on the mission's actual objective. This page exists
         purely for situational awareness of where the fleet passes — not as imagery that was actually captured.
@@ -2185,7 +2200,7 @@ function GlobalCoverageView({ data, state }) {
 
       <Panel index={5} title="Full-Globe Constellation Simulator" sub={`Unrestricted ground tracks — the same ${data.constellation.configuredSatellites} satellites, no AOI filter`} className="wide">
         {state ? (
-          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} defaultWindowMs={Infinity} />
+          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} defaultWindowMs={Infinity} aoiBox={state.aoi || data.coverage.aoi} aoiLabel={aoiLabel} />
         ) : (
           <div className="emptyState">Loading full-fleet ground tracks…</div>
         )}
@@ -2204,7 +2219,7 @@ function GlobalCoverageView({ data, state }) {
           <PdfButton
             mission={data.mission}
             title="Global Coverage Report"
-            subtitle="Per-satellite geographic reach — where each craft passes over the globe, beyond the Australia AOI"
+            subtitle={`Per-satellite geographic reach — where each craft passes over the globe, beyond the ${aoiLabel} AOI`}
             columns={GLOBAL_TABLE_COLUMNS}
             rows={filtered}
             fileName="global_coverage_report"
@@ -2336,7 +2351,7 @@ const STATE_EXPLORER_METHODS = [
   { metric: "Instantaneous Geodetic Altitude (min/mean/max)", meaning: "Range of the 'Altitude' column in Satellite_State_History.xlsx for this satellite across the analysis window: the actual propagated altitude at each timestep, not the fixed Nominal Orbit Altitude.", formula: "min / mean / max(Altitude)" },
   { metric: "Mean eccentricity", meaning: "Average of the state file's 'ECC' column — how far the orbit deviates from a perfect circle (0 = circular).", formula: "mean(ECC)" },
   { metric: "Mean RMAG", meaning: "Average orbit radius from Earth's center (Earth radius + altitude), from the state file's 'RMAG' column.", formula: "mean(RMAG)" },
-  { metric: "AOI dwell %", meaning: "Share of this satellite's state samples whose sub-point falls inside the mission AOI rectangle.", formula: "samples inside 110°E–160°E,10°S–40°S ÷ total samples × 100" },
+  { metric: "AOI dwell %", meaning: "Share of this satellite's state samples whose sub-point falls inside the mission AOI rectangle.", formula: "samples inside the AOI bounds ÷ total samples × 100" },
 ];
 
 function StateExplorer({ state, mission, stateLoading }) {
@@ -2388,7 +2403,7 @@ function StateExplorer({ state, mission, stateLoading }) {
           <PdfButton
             mission={mission}
             title="Satellite State Report"
-            subtitle={`AOI 110E-160E / 10S-40S · window ${dateLabel(state.range?.start)} to ${dateLabel(state.range?.end)}`}
+            subtitle={`AOI ${fmtAoiBox(state.aoi)} · window ${dateLabel(state.range?.start)} to ${dateLabel(state.range?.end)}`}
             columns={STATE_EXPLORER_COLUMNS}
             rows={state.summary}
             fileName="satellite_state_report"
@@ -2475,16 +2490,16 @@ const K_CONTENT = {
           <KpiCard index={2} icon={Globe2} label="Fleet AOI dwell" value={state ? state.summary.reduce((a, r) => a + r.aoiSharePercent, 0) / (state.summary.length || 1) : 0} format={(v) => `${number(v, 2)}%`} detail={`avg across ${state ? state.summary.length : data.constellation.configuredSatellites} satellites, time over the AOI rectangle`} accent={SUBSYS.Orbit.color} />
           <KpiCard index={3} icon={Activity} label="Live subpoints" value={data.charts.latestPositions.length} detail={`of ${data.constellation.configuredSatellites} satellites, at the latest shared epoch`} accent={SUBSYS.Orbit.color} />
         </div>
-        <Panel index={4} title="Constellation Transit Simulator" sub={`Animated ground tracks — watch the ${data.constellation.configuredSatellites} crafts transit Australia`} className="wide">
+        <Panel index={4} title="Constellation Transit Simulator" sub={`Animated ground tracks — watch the ${data.constellation.configuredSatellites} crafts transit ${data.mission.aoiRegionLabel || "Australia"}`} className="wide">
           {state ? (
-            <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} />
+            <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} aoiBox={state.aoi || data.coverage.aoi} aoiLabel={data.mission.aoiRegionLabel} />
           ) : (
             <WorldOrbitMap positions={data.charts.latestPositions} tracks={data.charts.tracks} />
           )}
         </Panel>
         {state ? (
-          <Panel index={5} title="AOI Dwell per Satellite" sub="Share of the window each craft spends over 110°E–160°E / 10°S–40°S" className="wide">
-            <SimpleBar rows={[...state.summary].sort((a, b) => b.aoiSharePercent - a.aoiSharePercent).slice(0, 24).map((r) => ({ satellite: r.satellite.replace("ASC_074_", "S"), aoiSharePercent: r.aoiSharePercent }))} x="satellite" y="aoiSharePercent" color={SUBSYS.Orbit.color} format={(v) => `${number(v, 2)}%`} />
+          <Panel index={5} title="AOI Dwell per Satellite" sub={`Share of the window each craft spends over the ${data.mission.aoiRegionLabel || "Australia"} AOI`} className="wide">
+            <SimpleBar rows={[...state.summary].sort((a, b) => b.aoiSharePercent - a.aoiSharePercent).slice(0, 24).map((r) => ({ satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S"), aoiSharePercent: r.aoiSharePercent }))} x="satellite" y="aoiSharePercent" color={SUBSYS.Orbit.color} format={(v) => `${number(v, 2)}%`} />
           </Panel>
         ) : null}
       </>
@@ -2494,7 +2509,7 @@ const K_CONTENT = {
     requirement:
       "48 crafts use sensor power only while travelling over Australia. Payload ON/OFF is derived from the modeled camera swath crossing the country — power is spent on coverage, not idle flight.",
     methods: [
-      { metric: "Fleet ON time / duty cycle", meaning: "A state sample counts as sensor ON when the modeled camera footprint (half the ground swath around the sub-satellite point) intersects the Australia land boundary, across all 48 satellites.", formula: "duty % = ON samples ÷ total samples × 100" },
+      { metric: "Fleet ON time / duty cycle", meaning: "A state sample counts as sensor ON when the modeled camera footprint (half the ground swath around the sub-satellite point) intersects the mission's AOI land boundary, across all 48 satellites.", formula: "duty % = ON samples ÷ total samples × 100" },
       { metric: "AOI + eclipse", meaning: "Hours where a satellite is simultaneously ON (observing) and inside a recorded eclipse interval — power drawn from battery, not solar, during that overlap.", formula: "Σ duration where Observing = true AND In Eclipse = true" },
       { metric: "Sample cadence", meaning: "Median time between consecutive state samples — the telemetry resolution this whole page's timing is built on.", formula: "median(Δt) between consecutive Timestamp rows, per satellite" },
     ],
@@ -2509,8 +2524,8 @@ const K_CONTENT = {
         <Panel index={4} title="Sensor Power Timeline" sub={`Observing satellites (sensor power drawn) vs. eclipse, out of ${data.constellation.configuredSatellites}`} className="wide">
           <DutyTimeline rows={data.duty.timeline} />
         </Panel>
-        <Panel index={5} title="Active Payload Time per Satellite" sub="Minutes of sensor power over Australia, per craft" className="wide">
-          <SimpleBar rows={data.duty.summary.slice(0, 24).map((r) => ({ ...r, satellite: r.satellite.replace("ASC_074_", "S") }))} x="satellite" y="activeMinutes" color={SUBSYS.Power.color} format={(v) => `${number(v, 1)} min`} />
+        <Panel index={5} title="Active Payload Time per Satellite" sub={`Minutes of sensor power over ${data.mission.aoiRegionLabel || "Australia"}, per craft`} className="wide">
+          <SimpleBar rows={data.duty.summary.slice(0, 24).map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }))} x="satellite" y="activeMinutes" color={SUBSYS.Power.color} format={(v) => `${number(v, 1)} min`} />
         </Panel>
       </>
     ),
@@ -2635,16 +2650,16 @@ const K_CONTENT = {
     render: (data) => (
       <>
         <div className="kpiGrid four">
-          <KpiCard index={0} icon={Globe2} label="Australia coverage" value={Number(data.coverage.percent)} format={(v) => `${number(v, 2)}%`} detail={`${number(data.coverage.coveredCells)} / ${number(data.coverage.totalCells)} land cells, all ${data.constellation.configuredSatellites} satellites`} accent={SUBSYS.Orbit.color} infoKey="coverage_percent" />
+          <KpiCard index={0} icon={Globe2} label={`${data.mission.aoiRegionLabel || "Australia"} coverage`} value={Number(data.coverage.percent)} format={(v) => `${number(v, 2)}%`} detail={`${number(data.coverage.coveredCells)} / ${number(data.coverage.totalCells)} land cells, all ${data.constellation.configuredSatellites} satellites`} accent={SUBSYS.Orbit.color} infoKey="coverage_percent" />
           <KpiCard index={1} icon={Activity} label="All-sat observed" value={data.coverage.observation.overall["Summed Satellite Observation Time"] || "NA"} detail="combined effort-time, summed across all satellites" accent={SUBSYS.Orbit.color} />
           <KpiCard index={2} icon={Satellite} label="Max simultaneous" value={data.coverage.observation.overall["Maximum Simultaneous Observing Satellites"] || 0} detail={`of ${data.constellation.configuredSatellites}, observing at the same instant`} accent={SUBSYS.Orbit.color} />
           <KpiCard index={3} icon={Gauge} label="Observation duty" value={Number(data.coverage.observation.overall["Overall Observation Duty Cycle (%)"]) || 0} format={(v) => `${number(v, 2)}%`} detail={`constellation timeline, ≥1 of ${data.constellation.configuredSatellites} satellites`} accent={SUBSYS.Orbit.color} infoKey="duty_cycle" />
         </div>
-        <Panel index={4} title="Coverage Cell Map" sub="Covered / uncovered cells over the Australia land boundary" className="wide">
+        <Panel index={4} title="Coverage Cell Map" sub={`Covered / uncovered cells over the ${data.mission.aoiRegionLabel || "Australia"} land boundary`} className="wide">
           <AustraliaCoverageMap cells={data.coverage.cells} outline={data.coverage.outline} tasmania={data.coverage.tasmania} aoi={data.coverage.aoi} percent={data.coverage.percent} />
         </Panel>
         <Panel index={5} title="Coverage Contribution" sub="Covered analysis-cell centers per satellite" className="wide">
-          <SimpleBar rows={data.coverage.contribution.slice(0, 24).map((r) => ({ ...r, satellite: r.satellite.replace("ASC_074_", "S") }))} x="satellite" y="coveredCells" color={SUBSYS.Orbit.color} />
+          <SimpleBar rows={data.coverage.contribution.slice(0, 24).map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }))} x="satellite" y="coveredCells" color={SUBSYS.Orbit.color} />
         </Panel>
       </>
     ),
@@ -2677,7 +2692,7 @@ const K_CONTENT = {
           </div>
         </Panel>
         <Panel index={5} title="Duty Cycle per Satellite" sub="Active coverage share — the rest is charge/store time, per craft">
-          <SimpleBar rows={data.duty.summary.slice(0, 20).map((r) => ({ ...r, satellite: r.satellite.replace("ASC_074_", "S") }))} x="satellite" y="dutyPercent" color={SUBSYS.Power.color} format={(v) => `${number(v, 2)}%`} height={280} />
+          <SimpleBar rows={data.duty.summary.slice(0, 20).map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }))} x="satellite" y="dutyPercent" color={SUBSYS.Power.color} format={(v) => `${number(v, 2)}%`} height={280} />
         </Panel>
       </>
     ),
@@ -2700,7 +2715,7 @@ const K_CONTENT = {
         </div>
         {state ? (
           <Panel index={4} title="Onboard Processing Window per Satellite" sub="Percent of the window outside the AOI — available for OBC processing" className="wide">
-            <SimpleBar rows={[...state.summary].sort((a, b) => (b.samples - b.aoiSamples) - (a.samples - a.aoiSamples)).slice(0, 24).map((r) => ({ satellite: r.satellite.replace("ASC_074_", "S"), processing: 100 - r.aoiSharePercent }))} x="satellite" y="processing" color={SUBSYS.Data.color} format={(v) => `${number(v, 2)}%`} />
+            <SimpleBar rows={[...state.summary].sort((a, b) => (b.samples - b.aoiSamples) - (a.samples - a.aoiSamples)).slice(0, 24).map((r) => ({ satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S"), processing: 100 - r.aoiSharePercent }))} x="satellite" y="processing" color={SUBSYS.Data.color} format={(v) => `${number(v, 2)}%`} />
           </Panel>
         ) : null}
         <Panel index={5} title="Acquisition vs Processing Timeline" sub="Observing satellites (acquiring) — the inverse is processing" className="wide">
@@ -2782,7 +2797,7 @@ const K_CONTENT = {
                 orbit was measured when nothing was.
               </div>
             ) : (
-              <SimpleBar rows={[...state.summary].sort((a, b) => b.meanEccentricity - a.meanEccentricity).slice(0, 24).map((r) => ({ satellite: r.satellite.replace("ASC_074_", "S"), ecc: r.meanEccentricity }))} x="satellite" y="ecc" color={SUBSYS.Upload.color} format={(v) => number(v, 6)} />
+              <SimpleBar rows={[...state.summary].sort((a, b) => b.meanEccentricity - a.meanEccentricity).slice(0, 24).map((r) => ({ satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S"), ecc: r.meanEccentricity }))} x="satellite" y="ecc" color={SUBSYS.Upload.color} format={(v) => number(v, 6)} />
             )}
           </Panel>
         ) : null}
@@ -2926,7 +2941,7 @@ function WelcomeScreen({ missions, setMissionId, onEnter }) {
                   <div className="mpHead">
                     <div>
                       <span className="mpEyebrow">{m.missionType || "Mission"} · Mission Profile</span>
-                      <h3 className="mpName">ASC_074</h3>
+                      <h3 className="mpName">{m.missionName || "Mission"}</h3>
                     </div>
                     <span className={`mpStatus ${unlocked ? "ready" : "locked"}`}>
                       <i />

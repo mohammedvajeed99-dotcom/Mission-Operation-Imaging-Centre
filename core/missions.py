@@ -32,6 +32,27 @@ MISSIONS = {
         "products_dir": BASE / "data" / "missions" / "asc074_3x1" / "products",
         "image_center_dir": BASE / "data" / "missions" / "asc074_3x1" / "image_center",
     },
+    "asc080_1x3": {
+        "id": "asc080_1x3",
+        # A different mission, ASC_080, not a third ASC_074 configuration:
+        # 1 orbital plane, 3 satellites per plane, AOI India.
+        "label": "ASC_080 — 1 plane x 3 sats/plane — 3 Satellites",
+        "config_path": BASE / "data" / "missions" / "asc080_1x3" / "config" / "Mission_Configuration.xlsx",
+        "raw_dir": BASE / "data" / "missions" / "asc080_1x3" / "raw",
+        "processed_dir": BASE / "data" / "missions" / "asc080_1x3" / "processed",
+        "products_dir": BASE / "data" / "missions" / "asc080_1x3" / "products",
+        "image_center_dir": BASE / "data" / "missions" / "asc080_1x3" / "image_center",
+    },
+    "asc080_6x4": {
+        "id": "asc080_6x4",
+        # ASC_080, 6 orbital planes, 4 satellites per plane, AOI India.
+        "label": "ASC_080 — 6 planes x 4 sats/plane — 24 Satellites",
+        "config_path": BASE / "data" / "missions" / "asc080_6x4" / "config" / "Mission_Configuration.xlsx",
+        "raw_dir": BASE / "data" / "missions" / "asc080_6x4" / "raw",
+        "processed_dir": BASE / "data" / "missions" / "asc080_6x4" / "processed",
+        "products_dir": BASE / "data" / "missions" / "asc080_6x4" / "products",
+        "image_center_dir": BASE / "data" / "missions" / "asc080_6x4" / "image_center",
+    },
 }
 
 DEFAULT_MISSION = "asc074_6x8"
@@ -68,6 +89,7 @@ def _mission_summary(m):
     constellation = sheet("Constellation")
     orbit = sheet("Orbit")
     summary = {
+        "missionName": mission.get("Mission Name"),
         "missionType": mission.get("Mission Type"),
         "areaOfInterest": mission.get("Area of Interest"),
         "planes": constellation.get("Number of Planes"),

@@ -1,6 +1,14 @@
 import numpy as np
 import pandas as pd
-from core.australia_coverage import MAINLAND_AUSTRALIA, TASMANIA, footprint_intersects_australia
+from core.australia_coverage import footprint_intersects_region
+
+# Inset ~2 deg from each region's AOI box (core.regions.AOI_BOXES) for the
+# revisit-analytics sampling grid, matching the margin already tuned for
+# Australia's original hardcoded 112..154 / -38..-12 grid.
+_REVISIT_GRID = {
+    "australia": {"lonRange": (112.0, 154.0), "latRange": (-38.0, -12.0)},
+    "india": {"lonRange": (70.0, 95.5), "latRange": (10.0, 35.2)},
+}
 
 DEFAULT_AOIS = {
     "australia": {
@@ -10,6 +18,14 @@ DEFAULT_AOIS = {
         "latMin": -40.0,
         "latMax": -10.0,
         "requirementMin": 60, # 60 minutes revisit requirement
+    },
+    "india": {
+        "name": "India",
+        "lonMin": 68.0,
+        "lonMax": 97.5,
+        "latMin": 8.0,
+        "latMax": 37.2,
+        "requirementMin": 60,
     },
     "southeast_asia": {
         "name": "Southeast Asia Maritime",
@@ -121,7 +137,7 @@ def compute_constellation_summary(config, state_df, rf_df, optical_df, camera_mo
     }
 
 
-def compute_revisit_analytics(state_df, swath_km=20.0):
+def compute_revisit_analytics(state_df, swath_km=20.0, region="australia"):
     if state_df.empty or "Timestamp" not in state_df.columns:
         # No state telemetry: report nothing rather than placeholder numbers.
         return {
@@ -152,9 +168,10 @@ def compute_revisit_analytics(state_df, swath_km=20.0):
             "heatmap": [],
         }
 
-    # Grid sampling over AOI 110E..160E, -40S..-10S
-    lons = np.linspace(112.0, 154.0, 15)
-    lats = np.linspace(-38.0, -12.0, 12)
+    # Grid sampling over the mission's AOI box (core.regions.AOI_BOXES)
+    grid_cfg = _REVISIT_GRID.get(region) or _REVISIT_GRID["australia"]
+    lons = np.linspace(grid_cfg["lonRange"][0], grid_cfg["lonRange"][1], 15)
+    lats = np.linspace(grid_cfg["latRange"][0], grid_cfg["latRange"][1], 12)
     
     half_swath_deg = (swath_km / 111.0) / 2.0
     
@@ -429,7 +446,7 @@ def _contact_subpoints(state_df, contact_df):
     return np.concatenate(lats), np.concatenate(lons)
 
 
-def compute_density_heatmaps(state_df, rf_df, optical_df, camera_model, swath_km=None):
+def compute_density_heatmaps(state_df, rf_df, optical_df, camera_model, swath_km=None, region="australia"):
     """Four spatial densities, each counted from real reported positions.
 
     passDensity     -- where satellites flew
@@ -475,8 +492,8 @@ def compute_density_heatmaps(state_df, rf_df, optical_df, camera_model, swath_km
     # and observation analytics use -- not a multiplier on pass density.
     swath = float(swath_km or (camera_model or {}).get("Ground Swath (km)") or 0.0)
     if swath > 0:
-        observing = footprint_intersects_australia(
-            state_df[ok.values], swath, lon_col="Longitude", lat_col="Latitude"
+        observing = footprint_intersects_region(
+            state_df[ok.values], swath, region=region, lon_col="Longitude", lat_col="Latitude"
         )
         img_lat, img_lon = lat_all[observing], lon_all[observing]
     else:
@@ -729,7 +746,7 @@ def compute_engineering_observations(mission_rows):
             f"(difference of {fmt(diff)}{unit})."
         )
 
-    compare("coveragePercent", "Australia coverage", "%", lower_is_better=False)
+    compare("coveragePercent", "AOI coverage", "%", lower_is_better=False)
     compare("meanRevisitMin", "Mean revisit time", " min", lower_is_better=True)
     compare("largestGapMin", "Largest coverage gap", " min", lower_is_better=True)
     compare("rfContactsPerDay", "RF contacts per day", "", lower_is_better=False)

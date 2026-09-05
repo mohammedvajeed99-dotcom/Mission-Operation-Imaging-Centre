@@ -29,6 +29,7 @@ from core.camera_model import build_camera_model
 from core.data_pipeline import read_processed_frame
 from core.config_loader import load_mission_configuration
 from core.missions import DEFAULT_MISSION, get_mission
+from core.regions import region_for_mission
 from core.image_center import (
     FAILED,
     GENERATED,
@@ -106,7 +107,8 @@ def _state(mission_id=DEFAULT_MISSION):
 def _catalog(mission_id=DEFAULT_MISSION):
     """Full imaging opportunity catalog. Expensive once, then cached."""
     cfg = _config(mission_id)
-    return build_catalog(_state(mission_id), _camera(mission_id), cfg["mission"], cfg["constellation"])
+    return build_catalog(_state(mission_id), _camera(mission_id), cfg["mission"], cfg["constellation"],
+                          region=region_for_mission(mission_id))
 
 
 def _catalog_live(mission_id):

@@ -36,7 +36,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core.aoi_regions import aoi_name, state_of
+from core.aoi_regions import aoi_name, state_of as australia_state_of
+from core.india_states import state_of as india_state_of
 from core.footprint import (
     _bearing_deg,
     densify_track,
@@ -164,7 +165,7 @@ def _fmt_met(seconds):
     return f"{d:03d}:{h:02d}:{m:02d}:{s:02d}"
 
 
-def build_catalog(state_df, camera_model, mission_config=None, constellation_config=None):
+def build_catalog(state_df, camera_model, mission_config=None, constellation_config=None, region="australia"):
     """Build the full imaging opportunity catalog from GMAT telemetry.
 
     Returns a DataFrame with one row per opportunity, carrying every metadata
@@ -172,10 +173,12 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
     exist after generation (quality score, cloud cover, generated timestamp)
     are present but null.
     """
+    from core.regions import REGION_LABELS
+
     mission_config = mission_config or {}
     constellation_config = constellation_config or {}
     mission = str(mission_config.get("Mission Name", "MISSION"))
-    default_aoi = str(mission_config.get("Area of Interest", "Australia"))
+    default_aoi = str(mission_config.get("Area of Interest") or REGION_LABELS.get(region, "Australia"))
     per_plane = int(float(constellation_config.get("Satellites per Plane", 8) or 8))
 
     swath_km = float(camera_model.get("Ground Swath (km)") or 0.0)
@@ -199,12 +202,12 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
     # Scene tiles are cut at the swath so products are roughly square, matching
     # core.footprint.scene_grid. Densify first: the report's native fix spacing
     # is ~9x the swath, so most of the overflown ground falls between samples.
-    from core.australia_coverage import footprint_intersects_australia
+    from core.australia_coverage import footprint_intersects_region
 
     along_km = swath_km
     dense = densify_track(df, max_gap_km=along_km / 2.0)
-    dense["Observing Australia"] = footprint_intersects_australia(
-        dense, swath_km, lon_col="Longitude", lat_col="Latitude"
+    dense["Observing AOI"] = footprint_intersects_region(
+        dense, swath_km, region=region, lon_col="Longitude", lat_col="Latitude"
     )
 
     rows = []
@@ -212,7 +215,7 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
         grp = grp.sort_values("Timestamp").copy()
         grp["heading"] = ground_track_heading(grp)
         grp["orbit"] = orbit_numbers(grp)
-        active = grp[grp["Observing Australia"]]
+        active = grp[grp["Observing AOI"]]
         if active.empty:
             continue
 
@@ -245,7 +248,12 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
             bbox = footprint_bbox(corners)
             height_px = int(round(along_km * 1000.0 / gsd_m)) if gsd_m else 0
             met_s = (row.Timestamp - mission_start).total_seconds()
-            state = state_of(row.Latitude, row.Longitude)
+            if region == "india":
+                state = india_state_of(row.Latitude, row.Longitude)
+            elif region == "australia":
+                state = australia_state_of(row.Latitude, row.Longitude)
+            else:
+                state = default_aoi
 
             rows.append({
                 "imageId": make_image_id(mission, plane, sat_num, row.orbit, row.Timestamp),
@@ -286,7 +294,7 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
                     * len(BANDS) * BYTES_PER_SAMPLE
                 ),
                 "deliveredGsdM": gsd_m * (width_px / min(width_px, MAX_DELIVERED_PX)) if width_px else gsd_m,
-                "aoiName": aoi_name(row.Latitude, row.Longitude),
+                "aoiName": aoi_name(row.Latitude, row.Longitude, region=region),
                 "australianState": state,
                 "missionAoi": default_aoi,
                 "fromInterpolatedFix": bool(getattr(row, "interpolated", False)),

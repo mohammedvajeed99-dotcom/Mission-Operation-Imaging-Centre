@@ -40,12 +40,13 @@ SECRET_PATH = BASE / "config" / ".access_secret"
 
 DEFAULT_SESSION_HOURS = 12
 
-# Missions that need no code to switch into -- both asc074_6x8 (the default
-# a first-time visitor lands on) and asc074_3x1 are the project's two real,
-# in-scope missions, so neither should require a mission-level code; a
+# Missions that need no code to switch into. All four of the project's real,
+# in-scope missions (asc074_6x8 -- the default a first-time visitor lands on
+# -- asc074_3x1, asc080_1x3, asc080_6x4) are public: switching mission never
+# needs a code, only the per-section codes below gate the actual data. A
 # mission added later would still need its own code, the same way a locked
 # section needs its own code to open, unless also added here.
-PUBLIC_MISSIONS = {DEFAULT_MISSION, "asc074_3x1"} & set(MISSIONS)
+PUBLIC_MISSIONS = {DEFAULT_MISSION, "asc074_3x1", "asc080_1x3", "asc080_6x4"} & set(MISSIONS)
 NON_DEFAULT_MISSIONS = sorted(mid for mid in MISSIONS if mid not in PUBLIC_MISSIONS)
 
 # Chrome-level keys always returned regardless of unlocked sections, so the
