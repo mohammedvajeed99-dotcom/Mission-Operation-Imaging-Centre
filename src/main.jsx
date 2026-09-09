@@ -544,10 +544,181 @@ function useDashboard(missionId) {
 
 /* ------------------------------ chrome -------------------------------- */
 
+/* Canvas starfield: hundreds of individually-varied stars across three
+   parallax depth layers (far/mid/near), each drifting at its own slow
+   constant velocity with a toroidal wrap so the field never visibly resets.
+   A minority of stars twinkle on their own sine phase so the shimmer never
+   reads as one synchronized pulse. Scroll nudges each layer's vertical
+   offset by a different amount (near layer moves more than far layer),
+   which is what gives scrolling its "drifting past the stars" feel.
+
+   Runs its own rAF loop rather than relying on CSS animation because it
+   needs to react to scroll and pause on tab-hide / prefers-reduced-motion
+   itself -- a canvas redraw isn't something CSS can drive. */
+function Starfield() {
+  const canvasRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const ctx = canvas.getContext("2d");
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const LAYERS = [
+      { density: 4400, rMin: 0.6, rMax: 1.3, aMin: 0.35, aMax: 0.7, speed: 3.5, parallax: 0.02, twinklePct: 0.2, glow: false },
+      { density: 8000, rMin: 1.0, rMax: 1.9, aMin: 0.5, aMax: 0.85, speed: 7, parallax: 0.045, twinklePct: 0.3, glow: false },
+      { density: 16000, rMin: 1.5, rMax: 2.6, aMin: 0.7, aMax: 1.0, speed: 13, parallax: 0.09, twinklePct: 0.4, glow: true },
+    ];
+    // A gentle constant drift direction (down-right), like slowly gliding
+    // past the sky rather than stars randomly wandering.
+    const DRIFT_ANGLE = 0.62; // radians
+
+    let width = 0;
+    let height = 0;
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let stars = [];
+    let raf = null;
+    let running = false;
+    let scrollY = window.scrollY || 0;
+    let lastTs = 0;
+
+    function buildStars() {
+      stars = [];
+      const mobileScale = width < 760 ? 0.55 : 1;
+      LAYERS.forEach((layer, li) => {
+        const count = Math.max(12, Math.floor(((width * height) / layer.density) * mobileScale));
+        for (let i = 0; i < count; i++) {
+          stars.push({
+            layer: li,
+            x: Math.random() * width,
+            y: Math.random() * height,
+            r: layer.rMin + Math.random() * (layer.rMax - layer.rMin),
+            baseAlpha: layer.aMin + Math.random() * (layer.aMax - layer.aMin),
+            twinkle: Math.random() < layer.twinklePct,
+            twinkleSpeed: 0.6 + Math.random() * 1.4,
+            twinklePhase: Math.random() * Math.PI * 2,
+          });
+        }
+      });
+    }
+
+    function resize() {
+      // Measure the canvas's own rendered box rather than trusting
+      // window.innerWidth or documentElement.clientWidth: the element is
+      // position:fixed + inset:0, so its actual on-screen size is whatever
+      // the browser laid it out at, and those two other metrics can each
+      // diverge from that under page zoom or some mobile emulation modes.
+      // Sizing the drawing buffer to anything else stretches every star.
+      const box = canvas.getBoundingClientRect();
+      width = box.width;
+      height = box.height;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildStars();
+    }
+
+    function draw(ts) {
+      const dt = lastTs ? Math.min(ts - lastTs, 50) : 16;
+      lastTs = ts;
+      ctx.clearRect(0, 0, width, height);
+
+      for (const s of stars) {
+        const layer = LAYERS[s.layer];
+        if (!reduceMotion) {
+          s.x += Math.cos(DRIFT_ANGLE) * layer.speed * (dt / 1000);
+          s.y += Math.sin(DRIFT_ANGLE) * layer.speed * (dt / 1000);
+          if (s.x > width + 4) s.x = -4;
+          if (s.x < -4) s.x = width + 4;
+          if (s.y > height + 4) s.y = -4;
+          if (s.y < -4) s.y = height + 4;
+        }
+
+        let alpha = s.baseAlpha;
+        if (s.twinkle && !reduceMotion) {
+          alpha *= 0.55 + 0.45 * Math.sin(ts * 0.001 * s.twinkleSpeed + s.twinklePhase);
+        }
+        const yOffset = reduceMotion ? 0 : (scrollY * layer.parallax) % (height + 40);
+        const drawY = ((s.y - yOffset) % (height + 8) + (height + 8)) % (height + 8);
+
+        ctx.beginPath();
+        ctx.globalAlpha = Math.max(alpha, 0);
+        ctx.fillStyle = "#eaf2ff";
+        // Only the near layer's larger stars get a soft glow halo -- that's
+        // what reads as "premium sparkle" rather than flat dots, and
+        // shadowBlur has a real per-draw cost so it stays limited to the
+        // ~50 stars in that one layer instead of every star on screen.
+        if (layer.glow) {
+          ctx.shadowBlur = s.r * 4;
+          ctx.shadowColor = "rgba(160, 205, 255, 0.9)";
+        } else {
+          ctx.shadowBlur = 0;
+        }
+        ctx.arc(s.x, drawY, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+
+      if (running) raf = requestAnimationFrame(draw);
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      lastTs = 0;
+      raf = requestAnimationFrame(draw);
+    }
+    function stop() {
+      running = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+    }
+
+    resize();
+    // Reduced motion: render exactly one static frame, no loop at all.
+    if (reduceMotion) {
+      draw(0);
+    } else {
+      start();
+    }
+
+    const onResize = () => {
+      resize();
+    };
+    const onScroll = () => {
+      scrollY = window.scrollY || 0;
+    };
+    const onVisibility = () => {
+      if (reduceMotion) return;
+      if (document.hidden) stop();
+      else start();
+    };
+
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stop();
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="starfieldCanvas" aria-hidden="true" />;
+}
+
 function Backdrop() {
   return (
     <>
       <div className="spaceBg" />
+      <Starfield />
       <div className="gridOverlay" />
     </>
   );
@@ -775,6 +946,7 @@ function FullAccessBox() {
 }
 
 function Sidebar({ active, setActive, onHome }) {
+  const guideItem = ["guide", Info, "How to Read This Dashboard"];
   const mission = [
     ["overview", LayoutDashboard, "Mission Overview"],
     ["explorer", Satellite, "State Explorer"],
@@ -782,7 +954,6 @@ function Sidebar({ active, setActive, onHome }) {
     ["imaging", Aperture, "Payload & Imaging"],
     ["global", Compass, "Global Coverage"],
     ["data", Database, "Data & Config"],
-    ["guide", Info, "How to Read This Dashboard"],
   ];
   const imageCenter = [
     ["ic-catalog", Camera, "Image Catalog"],
@@ -880,6 +1051,11 @@ function Sidebar({ active, setActive, onHome }) {
       <FullAccessBox />
 
       <nav className="nav">
+        <div className="navGroup">
+          <p className="navGroupLabel">Start Here</p>
+          {NavItem(guideItem)}
+        </div>
+
         <div className="navGroup">
           <p className="navGroupLabel">Mission</p>
           {mission.map(NavItem)}
@@ -2831,6 +3007,19 @@ function KView({ id, data, state }) {
    shared pattern. */
 function WelcomeScreen({ missions, setMissionId, onEnter }) {
   const { isMissionUnlocked, unlockMission, unlock } = useAccess();
+  // Display order only: the smaller ASC_074 configuration (3x1) reads first
+  // in the top row, larger (6x8) second. Every other card -- the ASC_080
+  // row included -- keeps its existing position; this only ever swaps
+  // those two specific cards with each other, never reorders anything else.
+  const displayMissions = React.useMemo(() => {
+    const arr = [...missions];
+    const i6x8 = arr.findIndex((m) => m.id === "asc074_6x8");
+    const i3x1 = arr.findIndex((m) => m.id === "asc074_3x1");
+    if (i6x8 !== -1 && i3x1 !== -1) {
+      [arr[i6x8], arr[i3x1]] = [arr[i3x1], arr[i6x8]];
+    }
+    return arr;
+  }, [missions]);
   const [pendingMission, setPendingMission] = React.useState(null);
   const [code, setCode] = React.useState("");
   const [error, setError] = React.useState("");
@@ -2929,7 +3118,7 @@ function WelcomeScreen({ missions, setMissionId, onEnter }) {
           {missions.length === 0 ? (
             <p className="welcomeMissionsEmpty">Loading missions…</p>
           ) : (
-            missions.map((m, i) => {
+            displayMissions.map((m, i) => {
               const unlocked = isMissionUnlocked(m.id);
               return (
                 <button
