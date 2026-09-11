@@ -22,6 +22,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from core.time_utils import utc_iso
+
 STAC_URL = "https://earth-search.aws.element84.com/v1"
 COLLECTION = "sentinel-2-l2a"
 
@@ -59,6 +61,15 @@ GDAL_HTTP_OPTS = {
     "VSI_CACHE": True,
     "VSI_CACHE_SIZE": 50_000_000,
     "GDAL_CACHEMAX": 256,  # MB -- rasterio requires an int here, not a string
+    # A windowed read of a tiled COG fetches every block the window touches as
+    # a separate HTTP range request. The default 16 KB range-request chunk
+    # under-covers a compressed 1024x1024 block (see the tile's own block
+    # size), forcing GDAL to issue several small ranges per block instead of
+    # one; merging adjacent block ranges into fewer, larger requests measured
+    # faster for the same bytes on this same imagery (see scratchpad
+    # time_read_only.py). Neither option changes which bytes are read.
+    "CPL_VSIL_CURL_CHUNK_SIZE": "1048576",
+    "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
 }
 
 
@@ -224,7 +235,7 @@ def read_footprint(item, bbox, out_shape, bands=("Red", "Green", "Blue", "Near I
     provenance = {
         "sourceCollection": COLLECTION,
         "sourceSceneId": item.id,
-        "sourceDatetime": item.datetime.isoformat(),
+        "sourceDatetime": utc_iso(item.datetime),
         "sourceCloudCoverPercent": float(item.properties.get("eo:cloud_cover", float("nan"))),
         "sourcePlatform": item.properties.get("platform"),
         "sourceNativeGsdM": NATIVE_GSD_M,
@@ -338,14 +349,60 @@ def _feather_seam(mosaic, array, feather_px=FEATHER_PX):
     return out
 
 
+def _bbox_coverage_fraction(item, bbox):
+    """Fraction of `bbox` actually covered by `item`'s own acquired footprint.
+
+    STAC geometry is a real per-date polygon (always WGS84, same as `bbox`),
+    already returned by the search that produced `item` -- this costs no
+    extra network call, just the geometry already in hand. It is a much
+    better predictor of how much of the requested footprint a granule will
+    actually fill than its season/cloud rank: two dates for the very same
+    110 km tile can differ hugely here, because a specific overpass can
+    leave a real no-data wedge inside its own nominal tile boundary (see the
+    module docstring and find_source_scenes). Ratio, not absolute area, so
+    the latitude-dependent degree-to-km distortion cancels between numerator
+    and denominator across the small (~1 degree) span of one footprint.
+    """
+    try:
+        from shapely.geometry import box, shape
+
+        bbox_poly = box(*bbox)
+        area = bbox_poly.area
+        if area <= 0:
+            return 0.0
+        return shape(item.geometry).intersection(bbox_poly).area / area
+    except Exception:
+        return 0.5  # unknown -- neither favour nor penalise vs a typical candidate
+
+
 def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue", "Near Infrared"),
-                          min_coverage=0.995, harmonise=True, feather=True):
+                          min_coverage=0.995, harmonise=True, feather=True, on_progress=None):
     """Read `bbox` from `items`, filling gaps from later items until covered.
 
     A Sentinel-2 granule is a 110 km tile, so a ~69 km footprint sitting on a
     tile boundary is not fully covered by any single granule. Reading only the
     top-ranked scene leaves a void that would otherwise be filled with the band
     median and silently pass as real data.
+
+    Items are tried in order of estimated bbox coverage (see
+    _bbox_coverage_fraction), highest first -- not in the season/cloud order
+    find_source_scenes ranked them for candidate *selection*. Measured before
+    this change: a real footprint needed 3 full-resolution sequential reads
+    (74 s) because the season-best candidate for its tile only actually
+    covered 9.9% of the footprint on that specific date, and the next-ranked
+    one covered 1.5%, before a lower-ranked candidate that covered 88.55%
+    arrived third. Its own geometry showed that same tile covering 100% of
+    the footprint on a different date -- trying highest-coverage first turns
+    a wasted 96 MB read (four bands at full resolution) for a 1.5% gain into
+    reading the highest-yield candidate up front, usually converging in
+    fewer reads with no change to which real pixels end up in the mosaic
+    (every candidate is still a genuine Sentinel-2 observation; this only
+    changes the order they are tried in).
+
+    `on_progress`, if given, is called as `on_progress(index, total, coverage)`
+    before each candidate is read (index is 1-based, coverage is the fraction
+    filled so far from prior reads) -- purely a status hook for a caller that
+    wants to surface live progress; it does not affect what gets read.
 
     Returns (array, provenance). Pixels still missing after all items are
     exhausted stay NaN, and provenance reports the true coverage fraction so
@@ -354,8 +411,21 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
     if not items:
         raise ImageryUnavailable("No candidate scenes supplied")
 
+    items = sorted(items, key=lambda it: _bbox_coverage_fraction(it, bbox), reverse=True)
+
     mosaic = None
     contributors = []
+    # Live-verified case (Tasmania footprint straddling a granule boundary):
+    # 2 real candidates filled 99.46% of the bbox, just under min_coverage, and
+    # every one of the next ~10 fallback candidates then cost a full 4-band
+    # network read only to be discarded (filled_now <= 0.0005 each time) while
+    # 2048px generation crawled past 3.5 minutes chasing the last <1%. Once
+    # coverage stops moving for STALL_LIMIT reads in a row, further candidates
+    # are overwhelmingly likely to be the same story -- stop paying for them.
+    # This changes nothing about which real pixels end up in the mosaic, only
+    # how many candidates get tried before accepting the gap as genuine.
+    STALL_LIMIT = 2
+    stalled_reads = 0
 
     def safe_read(item):
         """(array, prov, error) so one bad granule cannot sink the scene."""
@@ -375,7 +445,14 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
         for item in items:
             yield item, safe_read(item)
 
-    for item, (array, prov, err) in read_in_order():
+    total_items = len(items)
+    coverage_so_far = 0.0
+    for i, (item, (array, prov, err)) in enumerate(read_in_order(), start=1):
+        if on_progress is not None:
+            try:
+                on_progress(i, total_items, coverage_so_far)
+            except Exception:
+                pass  # a status hook must never break a real generation
         if err is not None:
             contributors.append({"sceneId": getattr(item, "id", "?"), "skipped": str(err)})
             continue
@@ -396,7 +473,11 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
             mosaic = _feather_seam(mosaic, array, feather_px=FEATHER_PX if feather else 0)
             filled_now = float(np.isfinite(mosaic).mean()) - before
             if filled_now <= 0.0005:
+                stalled_reads += 1
+                if stalled_reads >= STALL_LIMIT:
+                    break  # diminishing returns exhausted; remaining candidates won't help either
                 continue  # contributed nothing useful; do not credit it
+            stalled_reads = 0
 
         contributors.append({
             "radiometricMatch": match_report,
@@ -407,7 +488,8 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
             "coverageContributed": round(filled_now, 4),
         })
 
-        if float(np.isfinite(mosaic).mean()) >= min_coverage:
+        coverage_so_far = float(np.isfinite(mosaic).mean())
+        if coverage_so_far >= min_coverage:
             break
 
     if mosaic is None:

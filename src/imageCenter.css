@@ -50,6 +50,7 @@
 /* ---------------- buttons ---------------- */
 
 .icBtn {
+  position: relative; overflow: hidden;
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   border-radius: 9px; padding: 8px 13px; font-size: 12.5px; font-weight: 600;
   border: 1px solid transparent; cursor: pointer; transition: filter .15s, background .15s;
@@ -60,6 +61,25 @@
 .icBtnPrimary { background: linear-gradient(135deg, #2f6bff, #22d3ee); color: #04101f; }
 .icBtnGhost {
   background: rgba(24, 38, 66, .82); border-color: rgba(120, 150, 220, .22); color: #cbd8f0;
+}
+
+/* Same light-sweep treatment as the main dashboard's .btn.primary, kept in
+   sync so a gradient primary button looks and behaves identically whether
+   it's in the main shell or the Image Center module's own CSS file. */
+.icBtnPrimary::after {
+  content: "";
+  position: absolute;
+  top: -40%; left: -30%;
+  width: 30%; height: 180%;
+  background: linear-gradient(115deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: skewX(-18deg) translateX(-140%);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .icBtnPrimary:not(:disabled):hover::after {
+    transform: skewX(-18deg) translateX(420%);
+    transition: transform 0.65s ease;
+  }
 }
 
 .icSpin { animation: icspin 1s linear infinite; }
@@ -257,6 +277,13 @@
   line-height: 1.6;
   font-style: italic;
 }
+.icGeoAttribution {
+  margin: 4px 0 0;
+  color: #7d8ba3;
+  font-size: 10.5px;
+  line-height: 1.5;
+  font-style: italic;
+}
 
 .icResPick {
   display: inline-flex;
@@ -299,6 +326,11 @@
   gap: 12px;
   margin-bottom: 10px;
   font-size: 13px;
+}
+.icBatchTiming {
+  font-weight: 400;
+  color: #9fb3d1;
+  font-size: 12px;
 }
 .icBatchBar {
   height: 6px;
@@ -479,6 +511,7 @@
 /* ---------------- misc ---------------- */
 
 .icMuted { color: #6f82a6; font-size: 13px; padding: 16px; text-align: center; }
+.icEmptyRow { padding: 28px 16px; font-size: 13.5px; }
 .icError {
   color: #fb5c73; background: rgba(251, 92, 115, .1); border: 1px solid rgba(251, 92, 115, .28);
   border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 0;
@@ -574,3 +607,65 @@
   margin-top: 14px;
   pointer-events: auto;
 }
+
+/* -------------------- Global Location Explorer -------------------- */
+
+.icLocFilters { margin-bottom: 10px; }
+.icLocFilters select:disabled {
+  opacity: 0.45; cursor: not-allowed;
+}
+.icLocClear { margin-bottom: 14px; }
+
+.icLocSelected {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 14px; color: #9fb3d1; font-size: 12.5px;
+}
+.icLocSelected strong { color: #e8eefc; }
+
+.icLocMissions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 0 0 16px;
+}
+.icLocMissions > span:first-child {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: #7d8fb3;
+}
+.icLocMissionChip {
+  background: rgba(34, 211, 238, .1); border: 1px solid rgba(34, 211, 238, .28);
+  color: #67e8f9; border-radius: 999px; padding: 4px 12px; font-size: 12px;
+}
+
+.icLocAvailable {
+  display: inline-block; margin-bottom: 10px; padding: 5px 12px; border-radius: 999px;
+  background: rgba(52, 211, 153, .14); border: 1px solid rgba(52, 211, 153, .34);
+  color: #34d399; font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+}
+
+.icLocUnavailable {
+  padding: 22px 18px; border-radius: 10px; text-align: center;
+  background: rgba(251, 92, 115, .07); border: 1px solid rgba(251, 92, 115, .28);
+}
+.icLocUnavailable strong {
+  display: block; margin-bottom: 6px; color: #fb5c73; font-size: 13px;
+  letter-spacing: .05em;
+}
+.icLocUnavailable p { margin: 0; color: #b9c6da; font-size: 12.5px; }
+
+.icLocTable th, .icLocTable td { white-space: nowrap; }
+
+.icLocCsv { margin-top: 12px; }
+
+/* -------------- Image Catalog: "See Near Opportunities" -------------- */
+
+.icNearbyPrompt { margin-top: 12px; }
+
+.icNearbyBannerRow { background: rgba(34, 211, 238, .06); }
+.icNearbyBanner {
+  padding: 12px 16px !important; text-align: left !important; white-space: normal !important;
+  border-bottom: 1px solid rgba(34, 211, 238, .18);
+}
+.icNearbyBanner strong {
+  display: inline-block; margin-right: 8px; color: #22d3ee;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em;
+}
+.icNearbyBanner span { color: #9fb3d1; font-size: 12px; }
+.icNearbyBanner span strong { color: #67e8f9; font-size: 12px; text-transform: none; letter-spacing: normal; margin: 0; }

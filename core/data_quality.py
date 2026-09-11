@@ -33,7 +33,7 @@ def _find_state_files(raw_dir):
 def _check(name, raw_files, processed_path, optional_columns=None):
     optional_columns = optional_columns or []
     if not raw_files:
-        return {"dataset": name, "status": "missing", "detail": "No raw GMAT report files found for this mission."}
+        return {"dataset": name, "status": "missing", "detail": "No raw report files found for this mission."}
 
     if not processed_path.exists():
         return {

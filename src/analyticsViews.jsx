@@ -83,12 +83,28 @@ function fmtAoiBox(box) {
 
 function KpiCard({ icon: Icon, label, value, format, detail, accent = COLORS.blue, index = 0, isAlert = false, badge = null, infoKey = null }) {
   const isNumeric = typeof value === "number" && Number.isFinite(value);
+  // Same whole-card-click-opens-the-popover behavior as main.jsx's KpiCard
+  // (see the comment there for why the click is forwarded to the ⓘ
+  // button's own ref rather than duplicating InfoPopover's open state, and
+  // why containerRef is passed so the popover's own "click outside closes"
+  // handler doesn't race the card's click into reopening what it just closed).
+  const infoBtnRef = React.useRef(null);
+  const cardRef = React.useRef(null);
+  const openInfo = infoKey ? () => infoBtnRef.current?.click() : undefined;
   return (
-    <section className={`kpi reveal ${isAlert ? "alertKpi" : ""}`} style={{ "--accent": accent, "--i": index }}>
+    <section
+      ref={cardRef}
+      className={`kpi reveal ${isAlert ? "alertKpi" : ""}${infoKey ? " kpiHasInfo" : ""}`}
+      style={{ "--accent": accent, "--i": index }}
+      onClick={openInfo}
+      role={infoKey ? "button" : undefined}
+      tabIndex={infoKey ? 0 : undefined}
+      onKeyDown={infoKey ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInfo(); } } : undefined}
+    >
       <div className="kpiTop">
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           {label}
-          {infoKey ? <InfoPopover infoKey={infoKey} /> : null}
+          {infoKey ? <InfoPopover infoKey={infoKey} triggerRef={infoBtnRef} containerRef={cardRef} /> : null}
         </span>
         <span className="kpiIcon">
           <Icon size={17} />
@@ -221,7 +237,26 @@ const AV_LAND_PATH = (() => {
 
 const DEFAULT_AOI_BOX = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
 
-function MapCanvasBase({ children, legend, showAoi = false, aoiBox = DEFAULT_AOI_BOX }) {
+/* Same real coastline-derived outline used by main.jsx's ConstellationSim --
+   see the longer comment there. A lon/lat bounding rectangle necessarily
+   sweeps in whatever else sits in its corners (India's box, at its
+   northernmost latitude, spans the full width into Tibet/western China),
+   which the real outline avoids. */
+function outlinePathD(rings = []) {
+  let d = "";
+  rings.forEach((ring) => {
+    if (!ring || !ring.length) return;
+    ring.forEach((pt, i) => {
+      const lon = pt.lon ?? pt[0];
+      const lat = pt.lat ?? pt[1];
+      d += `${i === 0 ? "M" : "L"}${projX(lon).toFixed(1)} ${projY(lat).toFixed(1)}`;
+    });
+    d += "Z";
+  });
+  return d;
+}
+
+function MapCanvasBase({ children, legend, showAoi = false, aoiBox = DEFAULT_AOI_BOX, outline = [], secondary = [] }) {
   const lonLines = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150];
   const latLines = [-60, -30, 0, 30, 60];
 
@@ -266,14 +301,21 @@ function MapCanvasBase({ children, legend, showAoi = false, aoiBox = DEFAULT_AOI
         {/* Real land silhouette */}
         <path d={AV_LAND_PATH} fill="#1a2d50" stroke="rgba(80,130,200,.25)" strokeWidth="0.5" />
 
-        {/* Optional AOI box */}
+        {/* Optional AOI outline -- real coastline-derived polygon when
+            available, falling back to the old bounding rectangle otherwise
+            (see outlinePathD above for why the rectangle alone is misleading) */}
         {showAoi ? (
-          <rect
-            x={projX(aoiBox.lonMin)} y={projY(aoiBox.latMax)}
-            width={projX(aoiBox.lonMax) - projX(aoiBox.lonMin)}
-            height={projY(aoiBox.latMin) - projY(aoiBox.latMax)}
-            fill="none" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
-          />
+          outline.length > 0 ? (
+            <path d={outlinePathD([outline, secondary])} fillRule="evenodd"
+              fill="none" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85" />
+          ) : (
+            <rect
+              x={projX(aoiBox.lonMin)} y={projY(aoiBox.latMax)}
+              width={projX(aoiBox.lonMax) - projX(aoiBox.lonMin)}
+              height={projY(aoiBox.latMin) - projY(aoiBox.latMax)}
+              fill="none" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
+            />
+          )
         ) : null}
 
         {children}
@@ -291,7 +333,15 @@ export function ConstellationSummaryView({ data }) {
   const s = data?.analytics?.summary || {};
   const c = data?.constellation || {};
   const inclination = c.inclinationDeg ?? s.inclinationDeg ?? null;
-  const isSso = inclination != null && inclination >= 95 && inclination <= 103;
+  // Sun-synchronicity is a claim about nodal precession (depends on BOTH
+  // inclination and altitude, via the J2 secular-drift formula), not
+  // something a bare inclination range can determine on its own -- e.g. a
+  // 97.5 deg orbit is only actually sun-synchronous at one specific
+  // altitude. Read this from the backend's own precession calculation
+  // (core.constellation_analytics._classify_orbit_type, exposed via
+  // analytics.simulationDetails.orbitType) instead of re-guessing a
+  // second, less rigorous heuristic here.
+  const isSso = data?.analytics?.simulationDetails?.orbitType === "Sun-Synchronous Orbit (SSO)";
   const altitude = s.altitudeKm || c.altitudeKm || 536;
   const period = s.orbitalPeriodMin || 95.4;
   const histCount = (data?.analytics?.revisit?.histogram || []).reduce((sum, b) => sum + (b.count || 0), 0);
@@ -307,7 +357,7 @@ export function ConstellationSummaryView({ data }) {
         </div>
         <div className="bannerTextContent">
           <div className="bannerBadgeRow">
-            <span className="bannerBadge cyan">GMAT Telemetry Validated</span>
+            <span className="bannerBadge cyan">Telemetry Validated</span>
             <span className="bannerBadge green">
               {inclination != null ? `${isSso ? "SSO " : ""}${number(inclination, 1)}° Orbit` : "Orbit"}
             </span>
@@ -319,27 +369,27 @@ export function ConstellationSummaryView({ data }) {
       </div>
 
       <div className="kpiGrid five">
-        <KpiCard index={0} icon={Satellite} label="Constellation Name" value={s.constellationName || "ASC-074 Earth Obs"} detail="GMAT Mission Configuration" accent={COLORS.blue} badge="LEO" />
-        <KpiCard index={1} icon={Layers} label="Configuration" value={s.configuration || `${c.planes || 0} × ${c.satellitesPerPlane || 0}`} detail={`${c.planes || 0} orbital planes × ${c.satellitesPerPlane || 0} satellites per plane`} accent={COLORS.cyan} badge="Walker-Delta" />
-        <KpiCard index={2} icon={Satellite} label="Total Satellites" value={s.totalSatellites || c.configuredSatellites || 0} detail="Configured fleet count" accent={COLORS.blue} badge="Configured" />
-        <KpiCard index={3} icon={CheckCircle2} label="Operational Satellites" value={s.operationalSatellites || c.detectedSatellites || 0} detail="Detected active in GMAT state" accent={COLORS.green} badge="100% Active" />
+        <KpiCard index={0} icon={Satellite} label="Constellation Name" value={s.constellationName || "ASC-074 Earth Obs"} detail="Mission Configuration" accent={COLORS.blue} badge="LEO" infoKey="constellation_name" />
+        <KpiCard index={1} icon={Layers} label="Configuration" value={s.configuration || `${c.planes || 0} × ${c.satellitesPerPlane || 0}`} detail={`${c.planes || 0} orbital planes × ${c.satellitesPerPlane || 0} satellites per plane`} accent={COLORS.cyan} badge="Walker-Delta" infoKey="constellation_configuration" />
+        <KpiCard index={2} icon={Satellite} label="Total Satellites" value={s.totalSatellites || c.configuredSatellites || 0} detail="Configured fleet count" accent={COLORS.blue} badge="Configured" infoKey="total_satellites_configured" />
+        <KpiCard index={3} icon={CheckCircle2} label="Operational Satellites" value={s.operationalSatellites || c.detectedSatellites || 0} detail="Detected active in state telemetry" accent={COLORS.green} badge="100% Active" infoKey="operational_satellites" />
         <KpiCard index={4} icon={Orbit} label="Nominal Orbit Altitude" value={s.altitudeKm || c.altitudeKm || 536} format={(v) => `${number(v)} km`} detail="Fixed design altitude, shared by every satellite" accent={COLORS.cyan} badge="Nominal" infoKey="nominal_orbit_altitude" />
       </div>
 
       <div className="kpiGrid five">
-        <KpiCard index={5} icon={Compass} label="Inclination" value={inclination ?? 50} format={(v) => `${number(v, 1)}°`} detail="Orbit inclination angle" accent={COLORS.violet} badge={isSso ? "SSO" : "Inclined"} />
-        <KpiCard index={6} icon={Clock} label="Orbital Period" value={s.orbitalPeriodMin || 95.4} format={(v) => `${number(v, 2)} min`} detail="Derived Keplerian revolution time" accent={COLORS.amber} badge="Keplerian" />
-        <KpiCard index={7} icon={Activity} label="Ground Tracks / Day" value={s.groundTracksPerDay || 724} detail="Total fleet orbital transits" accent={COLORS.cyan} badge="724 Passes" />
-        <KpiCard index={8} icon={Globe2} label="Global Coverage" value={s.globalCoveragePct || 85.0} format={(v) => `${number(v, 1)}%`} detail="Accumulated land surface vision" accent={COLORS.green} badge="Cumulative" />
-        <KpiCard index={9} icon={Clock} label="Mean Revisit" value={s.meanRevisitMin || 28.5} format={(v) => `${number(v, 1)} min`} detail="Fleet average revisit interval" accent={COLORS.blue} badge="Target SLA" />
+        <KpiCard index={5} icon={Compass} label="Inclination" value={inclination ?? 50} format={(v) => `${number(v, 1)}°`} detail="Orbit inclination angle" accent={COLORS.violet} badge={isSso ? "SSO" : "Inclined"} infoKey="inclination_deg" />
+        <KpiCard index={6} icon={Clock} label="Orbital Period" value={s.orbitalPeriodMin || 95.4} format={(v) => `${number(v, 2)} min`} detail="Derived Keplerian revolution time" accent={COLORS.amber} badge="Keplerian" infoKey="orbital_period" />
+        <KpiCard index={7} icon={Activity} label="Ground Tracks / Day" value={s.groundTracksPerDay || 724} detail="Total fleet orbital transits" accent={COLORS.cyan} badge="724 Passes" infoKey="ground_tracks_per_day" />
+        <KpiCard index={8} icon={Globe2} label="Global Coverage" value={s.globalCoveragePct || 85.0} format={(v) => `${number(v, 1)}%`} detail="Accumulated land surface vision" accent={COLORS.green} badge="Cumulative" infoKey="global_coverage_duty_cycle" />
+        <KpiCard index={9} icon={Clock} label="Mean Revisit" value={s.meanRevisitMin || 28.5} format={(v) => `${number(v, 1)} min`} detail="Fleet average revisit interval" accent={COLORS.blue} badge="Target SLA" infoKey="mean_revisit" />
       </div>
 
       <div className="kpiGrid five">
-        <KpiCard index={10} icon={AlertTriangle} label="Worst Revisit" value={s.worstRevisitMin || 115.0} format={(v) => `${number(v, 1)} min`} detail="Maximum gap between observations" accent={COLORS.red} badge="Max Gap" isAlert />
-        <KpiCard index={11} icon={Sparkles} label="Best Revisit" value={s.bestRevisitMin || 4.2} format={(v) => `${number(v, 1)} min`} detail="Minimum consecutive pass delay" accent={COLORS.green} badge="Min Gap" />
-        <KpiCard index={12} icon={Aperture} label="Images / Day" value={s.imagesPerDay || 420} format={(v) => `${number(v, 0)}`} detail="Est. pushbroom scenes captured" accent={COLORS.pink} badge="Pushbroom" />
-        <KpiCard index={13} icon={Antenna} label="RF Contacts / Day" value={s.rfContactsPerDay || 96.0} format={(v) => `${number(v, 1)}`} detail="Downlink pass opportunities" accent={COLORS.cyan} badge="GSN Link" />
-        <KpiCard index={14} icon={Radio} label="Avg Contact Duration" value={s.avgContactDurationMin || 8.4} format={(v) => `${number(v, 2)} min`} detail="Line-of-sight window duration" accent={COLORS.violet} badge="Pass Length" />
+        <KpiCard index={10} icon={AlertTriangle} label="Worst Revisit" value={s.worstRevisitMin || 115.0} format={(v) => `${number(v, 1)} min`} detail="Maximum gap between observations" accent={COLORS.red} badge="Max Gap" isAlert infoKey="max_revisit" />
+        <KpiCard index={11} icon={Sparkles} label="Best Revisit" value={s.bestRevisitMin || 4.2} format={(v) => `${number(v, 1)} min`} detail="Minimum consecutive pass delay" accent={COLORS.green} badge="Min Gap" infoKey="min_revisit" />
+        <KpiCard index={12} icon={Aperture} label="Images / Day" value={s.imagesPerDay || 420} format={(v) => `${number(v, 0)}`} detail="Est. pushbroom scenes captured" accent={COLORS.pink} badge="Pushbroom" infoKey="images_per_day" />
+        <KpiCard index={13} icon={Antenna} label="RF Contacts / Day" value={s.rfContactsPerDay || 96.0} format={(v) => `${number(v, 1)}`} detail="Downlink pass opportunities" accent={COLORS.cyan} badge="GSN Link" infoKey="rf_contacts_per_day" />
+        <KpiCard index={14} icon={Radio} label="Avg Contact Duration" value={s.avgContactDurationMin || 8.4} format={(v) => `${number(v, 2)} min`} detail="Line-of-sight window duration" accent={COLORS.violet} badge="Pass Length" infoKey="avg_contact_duration" />
       </div>
 
       <MethodNote
@@ -387,19 +437,26 @@ export function RevisitAnalyticsView({ data }) {
 
   return (
     <div className="contentGrid">
-      <div className="kpiGrid five">
-        <KpiCard index={0} icon={Clock} label="Mean Revisit" value={r.mean_revisit} format={(v) => `${number(v, 1)} min`} detail="Average of every pooled gap — not a sum, not per satellite" accent={COLORS.blue} badge="Average" infoKey="mean_revisit" />
-        <KpiCard index={1} icon={Sparkles} label="Minimum Revisit" value={r.min_revisit} format={(v) => `${number(v, 1)} min`} detail="The single shortest gap anywhere in the pool" accent={COLORS.green} badge="Best" infoKey="min_revisit" />
-        <KpiCard index={2} icon={AlertTriangle} label="Maximum Revisit" value={r.max_revisit} format={(v) => `${number(v, 1)} min`} detail="The single longest gap anywhere in the pool" accent={COLORS.red} badge="Worst" isAlert infoKey="max_revisit" />
-        <KpiCard index={3} icon={Gauge} label="Median Revisit" value={r.median_revisit} format={(v) => `${number(v, 1)} min`} detail="Midpoint of the pool — half of all gaps are shorter" accent={COLORS.cyan} badge="P50" infoKey="median_revisit" />
-        <KpiCard index={4} icon={Activity} label="95th Percentile" value={r.p95_revisit} format={(v) => `${number(v, 1)} min`} detail="95% of pooled gaps are shorter than this" accent={COLORS.amber} badge="P95" infoKey="p95_revisit" />
-      </div>
-
-      <Panel index={5} title="World & AOI Revisit Heatmap" sub="Spatial access gap categorization based on GMAT sensor visibility passes" className="wide">
-        <RevisitHeatmapMap heatmap={r.heatmap || []} colorMap={colorMap} aoiBox={data?.coverage?.aoi} aoiLabel={data?.mission?.aoiRegionLabel || "Australia"} />
+      <Panel
+        index={0}
+        title="Revisit Analytics"
+        sub="Fleet-wide, not per-satellite: every figure below pools passes from all satellites at each AOI point onto one shared timeline before measuring the gaps between them. None of these five numbers is any single satellite's own revisit cycle."
+        className="wide"
+      >
+        <div className="kpiGrid five">
+          <KpiCard index={0} icon={Clock} label="Mean Revisit" value={r.mean_revisit} format={(v) => `${number(v, 1)} min`} detail="Average of every pooled gap, any satellite — not a sum, not per satellite" accent={COLORS.blue} badge="Average" infoKey="mean_revisit" />
+          <KpiCard index={1} icon={Sparkles} label="Minimum Revisit" value={r.min_revisit} format={(v) => `${number(v, 1)} min`} detail="Shortest gap anywhere in the pool, fleet-wide — not per satellite" accent={COLORS.green} badge="Best" infoKey="min_revisit" />
+          <KpiCard index={2} icon={AlertTriangle} label="Maximum Revisit" value={r.max_revisit} format={(v) => `${number(v, 1)} min`} detail="Longest gap anywhere in the pool, fleet-wide — not per satellite" accent={COLORS.red} badge="Worst" isAlert infoKey="max_revisit" />
+          <KpiCard index={3} icon={Gauge} label="Median Revisit" value={r.median_revisit} format={(v) => `${number(v, 1)} min`} detail="Midpoint of the pool, fleet-wide — half of all gaps are shorter" accent={COLORS.cyan} badge="P50" infoKey="median_revisit" />
+          <KpiCard index={4} icon={Activity} label="95th Percentile" value={r.p95_revisit} format={(v) => `${number(v, 1)} min`} detail="95% of pooled gaps, fleet-wide, are shorter than this" accent={COLORS.amber} badge="P95" infoKey="p95_revisit" />
+        </div>
       </Panel>
 
-      <Panel index={6} title="Revisit Time Frequency Distribution" sub="Every pooled gap, grouped into 8 time bins — the shape behind the 5 KPIs above" className="wide" action={<InfoPopover infoKey="revisit_distribution" />}>
+      <Panel index={1} title="World & AOI Revisit Heatmap" sub="Spatial access gap categorization based on sensor visibility passes" className="wide">
+        <RevisitHeatmapMap heatmap={r.heatmap || []} colorMap={colorMap} aoiBox={data?.coverage?.aoi} outline={data?.coverage?.outline || []} secondary={data?.coverage?.tasmania || []} aoiLabel={data?.mission?.aoiRegionLabel || "Australia"} />
+      </Panel>
+
+      <Panel index={2} title="Revisit Time Frequency Distribution" sub="Every pooled gap, grouped into 8 time bins — the shape behind the 5 KPIs above" className="wide" action={<InfoPopover infoKey="revisit_distribution" />}>
         <ResponsiveContainer height={260}>
           <BarChart data={histogram} margin={{ top: 10, right: 20, left: 0, bottom: 25 }}>
             <defs>
@@ -434,7 +491,7 @@ export function RevisitAnalyticsView({ data }) {
       <MethodNote
         items={[
           { metric: "Revisit Heatmap Scale", meaning: "Green (<30 min), Yellow (30–60 min), Orange (1–2 hr), Red (>2 hr) categorizing average access gaps.", formula: "Access gap color buckets applied per grid cell" },
-          { metric: "GMAT Derivation", meaning: "Derived directly from satellite sub-satellite paths and ground swath sensor footprint intersections over time.", formula: "Swath distance thresholding over state telemetry history" },
+          { metric: "Derivation", meaning: "Derived directly from satellite sub-satellite paths and ground swath sensor footprint intersections over time.", formula: "Swath distance thresholding over state telemetry history" },
           { metric: "Aggregate, not sum", meaning: "Every KPI on this page (Mean/Min/Max/Median/P95) is a statistic computed over one pooled list of pass-to-pass gaps from all 180 AOI grid points combined. None of them are a sum of anything, and none are a single satellite's own figure — they describe the AOI's access pattern as a whole.", formula: "pool = all gaps across all grid points; each KPI = one aggregate function of pool" },
         ]}
       />
@@ -451,16 +508,23 @@ export function CoverageGapView({ data }) {
 
   return (
     <div className="contentGrid">
-      <div className="kpiGrid six">
-        <KpiCard index={0} icon={AlertTriangle} label="Largest Gap" value={g.largestGapMin} format={(v) => `${number(v, 1)} min`} detail="Maximum single temporal coverage gap" accent={COLORS.red} isAlert badge="Peak" infoKey="gap_largest" />
-        <KpiCard index={1} icon={Clock} label="Mean Gap" value={g.meanGapMin} format={(v) => `${number(v, 1)} min`} detail="Average duration of coverage gaps" accent={COLORS.amber} badge="Average" />
-        <KpiCard index={2} icon={Gauge} label="Median Gap" value={g.medianGapMin} format={(v) => `${number(v, 1)} min`} detail="50th percentile gap duration" accent={COLORS.cyan} badge="Median" />
-        <KpiCard index={3} icon={Activity} label="Maximum Gap" value={g.maxGapMin} format={(v) => `${number(v, 1)} min`} detail="Peak blackout duration" accent={COLORS.red} badge="Max" />
-        <KpiCard index={4} icon={Clock} label="95th Percentile Gap" value={g.p95GapMin} format={(v) => `${number(v, 1)} min`} detail="95% of gaps are shorter than this" accent={COLORS.violet} badge="P95" />
-        <KpiCard index={5} icon={ShieldCheck} label="Requirement Satisfied" value={g.pctSatisfyingRequirement} format={(v) => `${number(v, 1)}%`} detail={`AOI meeting ≤${g.requirementMin || 60}m requirement (${g.dataBearingCells ?? 0}/${g.totalCells ?? 0} cells had data)`} accent={COLORS.green} badge="SLA Target" />
-      </div>
+      <Panel
+        index={0}
+        title="Coverage Gap Analysis"
+        sub="Fleet-wide, not per-satellite: built from the same per-cell gaps as Revisit Analytics, where each AOI grid cell already pools passes from every satellite onto one shared timeline. None of these six numbers is any single satellite's own gap."
+        className="wide"
+      >
+        <div className="kpiGrid six">
+          <KpiCard index={0} icon={AlertTriangle} label="Largest Gap" value={g.largestGapMin} format={(v) => `${number(v, 1)} min`} detail="Maximum single coverage gap, fleet-wide — not per satellite" accent={COLORS.red} isAlert badge="Peak" infoKey="gap_largest" />
+          <KpiCard index={1} icon={Clock} label="Mean Gap" value={g.meanGapMin} format={(v) => `${number(v, 1)} min`} detail="Average gap duration, pooled across the fleet" accent={COLORS.amber} badge="Average" infoKey="gap_mean" />
+          <KpiCard index={2} icon={Gauge} label="Median Gap" value={g.medianGapMin} format={(v) => `${number(v, 1)} min`} detail="50th percentile gap duration, fleet-wide" accent={COLORS.cyan} badge="Median" infoKey="gap_median" />
+          <KpiCard index={3} icon={Activity} label="Maximum Gap" value={g.maxGapMin} format={(v) => `${number(v, 1)} min`} detail="Same basis as Largest Gap above, fleet-wide" accent={COLORS.red} badge="Max" infoKey="gap_max" />
+          <KpiCard index={4} icon={Clock} label="95th Percentile Gap" value={g.p95GapMin} format={(v) => `${number(v, 1)} min`} detail="95% of pooled gaps, fleet-wide, are shorter than this" accent={COLORS.violet} badge="P95" infoKey="gap_p95" />
+          <KpiCard index={5} icon={ShieldCheck} label="Requirement Satisfied" value={g.pctSatisfyingRequirement} format={(v) => `${number(v, 1)}%`} detail={`Share of AOI grid cells meeting ≤${g.requirementMin || 60}m, any satellite (${g.dataBearingCells ?? 0}/${g.totalCells ?? 0} cells had data)`} accent={COLORS.green} badge="SLA Target" infoKey="gap_requirement_satisfied" />
+        </div>
+      </Panel>
 
-      <Panel index={6} title="Temporal Gap Duration Breakdown" sub="Classification of coverage blackouts by duration magnitude" className="wide">
+      <Panel index={1} title="Temporal Gap Duration Breakdown" sub="Classification of coverage blackouts by duration magnitude" className="wide" action={<InfoPopover infoKey="gap_distribution_chart" />}>
         <ResponsiveContainer height={280}>
           <BarChart data={g.gapDistribution || []} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
             <CartesianGrid vertical={false} stroke={COLORS.grid} />
@@ -479,8 +543,8 @@ export function CoverageGapView({ data }) {
 
       <MethodNote
         items={[
-          { metric: "Coverage Gap Definition", meaning: "The time elapsed between the exit of one satellite sensor footprint and the entry of the next over the same ground target.", formula: "Entry_Time(N+1) - Exit_Time(N)" },
-          { metric: "Requirement Satisfaction", meaning: "Percentage of grid points across the AOI whose maximum revisit gap does not exceed the target SLA requirement.", formula: "Count(Cells where Max Gap ≤ SLA) / Total AOI Cells * 100" },
+          { metric: "Coverage Gap Definition", meaning: "The time elapsed between one sensor footprint leaving a ground target and the next footprint arriving over it, from any satellite in the fleet -- the two passes bounding a gap are not necessarily the same craft.", formula: "Entry_Time(N+1) - Exit_Time(N), any satellite" },
+          { metric: "Requirement Satisfaction", meaning: "Percentage of grid points across the AOI whose fleet-wide maximum revisit gap does not exceed the target SLA requirement.", formula: "Count(Cells where Max Gap ≤ SLA) / Total AOI Cells * 100" },
         ]}
       />
     </div>
@@ -499,7 +563,7 @@ export function GroundStationAnalysisView({ data }) {
       <Panel
         index={0}
         title="Ground Station Analysis"
-        sub="The two real ground segments in this mission — RF and Optical, each with its own minimum elevation mask. This is a comparison of the mission's actual ground stations, not a sweep of elevation-angle variants (only one mask exists per link type in the source GMAT data)."
+        sub="The two real ground segments in this mission — RF and Optical, each with its own minimum elevation mask. This is a comparison of the mission's actual ground stations, not a sweep of elevation-angle variants (only one mask exists per link type in the source mission data)."
         className="wide"
       >
         {stations.length === 0 ? (
@@ -542,7 +606,7 @@ export function GroundStationAnalysisView({ data }) {
                   label="Longest Gap"
                   value={s.longestGapMin}
                   format={(v) => `${number(v, 1)} min`}
-                  detail="longest stretch between consecutive passes"
+                  detail="longest stretch with no contact, any satellite"
                   accent={COLORS.red}
                 />
               </React.Fragment>
@@ -568,7 +632,7 @@ export function GroundStationAnalysisView({ data }) {
 
       <MethodNote
         items={[
-          { metric: "Minimum Elevation Angle", meaning: "Minimum spacecraft elevation above the ground-station horizon required for a valid contact. A lower mask (RF, 5°) allows contact to begin/end earlier/later in a pass; a higher mask (Optical, 20°) trades window length for avoiding low-elevation atmospheric distortion.", formula: "Configured per link type in the mission's Ground_Stations sheet / GMAT Contact Locator" },
+          { metric: "Minimum Elevation Angle", meaning: "Minimum spacecraft elevation above the ground-station horizon required for a valid contact. A lower mask (RF, 5°) allows contact to begin/end earlier/later in a pass; a higher mask (Optical, 20°) trades window length for avoiding low-elevation atmospheric distortion.", formula: "Configured per link type in the mission's Ground_Stations sheet / ground-contact log" },
           { metric: "Pass Count / Contact Duration", meaning: "Direct counts and durations from the mission's own RF_Contacts.xlsx / Optical_Contacts.xlsx, one row per continuous line-of-sight contact.", formula: "Contact Stop Time − Contact Start Time, per row" },
           { metric: "Longest Gap", meaning: "The largest interval between the start of one contact and the start of the next, for that ground station.", formula: "max(Start_Time[n+1] − Start_Time[n])" },
         ]}
@@ -922,7 +986,7 @@ export function SimulationDetailsView({ data }) {
 
   const details = [
     { key: "simulationEngine", label: "Simulation Engine", val: sim.simulationEngine, cat: "Core Physics" },
-    { key: "gmatVersion", label: "GMAT Version", val: sim.gmatVersion, cat: "Core Physics" },
+    { key: "gmatVersion", label: "Engine Build", val: sim.gmatVersion, cat: "Core Physics" },
     { key: "propagator", label: "Propagator", val: sim.propagator, cat: "Orbit Propagator" },
     { key: "numericalIntegrator", label: "Numerical Integrator", val: sim.numericalIntegrator, cat: "Orbit Propagator" },
     { key: "gravityModel", label: "Gravity Model", val: sim.gravityModel, cat: "Force Models" },
@@ -942,7 +1006,7 @@ export function SimulationDetailsView({ data }) {
 
   return (
     <div className="contentGrid">
-      <Panel index={0} title="GMAT Simulation Engine Configuration" sub="Parameters derived from this mission's own configuration/state data are marked Verified. Everything else is a standard simulation assumption, shown for context but not confirmed against this mission's actual GMAT script." className="wide">
+      <Panel index={0} title="Simulation Engine Configuration" sub="Parameters derived from this mission's own configuration/state data are marked Verified. Everything else is a standard simulation assumption, shown for context but not confirmed against this mission's actual mission script." className="wide">
         <div className="tableWrap">
           <table>
             <thead>
@@ -960,9 +1024,9 @@ export function SimulationDetailsView({ data }) {
                   <tr key={i}>
                     <td className="textDim fontBold">{d.cat}</td>
                     <td className="fontBold">{d.label}</td>
-                    <td className="mono textCyan">{d.val || "Configured in GMAT"}</td>
+                    <td className="mono textCyan">{d.val || "Configured in simulation"}</td>
                     <td>
-                      <span className={isVerified ? "badge success" : "badge muted"} title={isVerified ? "Derived from this mission's own config/state data" : "Standard assumption, not verified against this mission's GMAT script"}>
+                      <span className={isVerified ? "badge success" : "badge muted"} title={isVerified ? "Derived from this mission's own config/state data" : "Standard assumption, not verified against this mission's mission script"}>
                         {isVerified ? "Verified" : "Assumed"}
                       </span>
                     </td>
@@ -976,7 +1040,8 @@ export function SimulationDetailsView({ data }) {
 
       <MethodNote
         items={[
-          { metric: "Verified vs Assumed", meaning: "\"Verified\" fields (Nominal Orbit Altitude, Inclination, Orbit Type, Epoch, Simulation Duration) are computed directly from this mission's own configuration and state-history files. \"Assumed\" fields (propagator, force models, integrator settings) are standard GMAT defaults shown for context — they are not parsed from this mission's actual GMAT script and may not match it exactly.", formula: "Verified: direct config/state read. Assumed: static reference values." },
+          { metric: "Verified vs Assumed", meaning: "\"Verified\" fields (Nominal Orbit Altitude, Inclination, Orbit Type, Epoch, Simulation Duration) are computed directly from this mission's own configuration and state-history files. \"Assumed\" fields (propagator, force models, integrator settings) are standard simulation defaults shown for context — they are not parsed from this mission's actual mission script and may not match it exactly.", formula: "Verified: direct config/state read. Assumed: static reference values." },
+          { metric: "Orbit Type -- what \"Sun-Synchronous\" actually checks", meaning: "Not an inclination-range guess (a given inclination is only truly sun-synchronous at one specific altitude for a circular orbit): this computes the real nodal precession rate from this mission's own inclination AND altitude via the standard J2 secular-drift formula, and classifies SSO only when that rate is within 0.05 deg/day of the 0.9856 deg/day rate a sun-synchronous orbit must match. A 97.5 deg orbit at the wrong altitude is correctly reported as a Retrograde Inclined LEO, not SSO, by this same check.", formula: "dOmega/dt = -1.5 * n * J2 * (Re/p)^2 * cos(i); SSO when |dOmega/dt - 0.9856| <= 0.05 deg/day" },
         ]}
       />
     </div>
@@ -984,7 +1049,7 @@ export function SimulationDetailsView({ data }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 8. CONSTELLATION ANIMATION PLAYBACK PANEL  — real GMAT telemetry           */
+/* 8. CONSTELLATION ANIMATION PLAYBACK PANEL  — real mission telemetry           */
 /* -------------------------------------------------------------------------- */
 
 /* Shared constants for the in-panel constellation sim */
@@ -1005,12 +1070,28 @@ const ANIM_SIM_SPEEDS = [
 
 const hueFor = (i) => `hsl(${(i * 47) % 360} 82% 62%)`;
 
+// See the longer comment on this same helper in main.jsx -- two real
+// satellite-naming conventions exist across this app's actual missions
+// ("ASC_074_16" vs "ASC_074A"), and a regex tuned only for the first left
+// the second undecorated in chart labels.
+function shortSat(name, prefix = "") {
+  const byDigitSuffix = name.replace(/^.*_(?=\d+$)/, prefix);
+  if (byDigitSuffix !== name) return byDigitSuffix;
+  return name.replace(/^.*\d(?=[A-Za-z]+$)/, prefix);
+}
+
 function fmtEpoch(ms) {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "—";
   const p = (n) => String(n).padStart(2, "0");
-  const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
-  return `${p(d.getDate())} ${mon} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} UTC`;
+  // UTC getters, not local -- this label already claimed "UTC" but was
+  // reading getDate()/getHours()/etc (the viewer's own local timezone),
+  // so it was correct only by coincidence for a viewer at UTC+0 and wrong
+  // -- while still asserting "UTC" -- for everyone else. See
+  // core.time_utils on the backend for why every epoch played back here
+  // is genuinely a UTC value.
+  const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()];
+  return `${p(d.getUTCDate())} ${mon} ${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
 }
 
 /* Inline map constants matching MapCanvasBase (960×480) */
@@ -1019,7 +1100,7 @@ const _pX = (lon) => ((Number(lon) + 180) / 360) * _W;
 const _pY = (lat) => ((90 - Number(lat)) / 180) * _H;
 
 /* Inner ConstellationSim — faithfully ported from main.jsx */
-function InlineConstellationSim({ series = {}, satellites = [], range, height = 500, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia" }) {
+function InlineConstellationSim({ series = {}, satellites = [], range, height = 500, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia", outline = [], secondary = [] }) {
   const reduceMotion =
     typeof window !== "undefined" &&
     window.matchMedia &&
@@ -1151,7 +1232,7 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
 
       {/* Map */}
       <div className="orbitMap">
-        <svg viewBox={`0 0 ${_W} ${_H}`} style={{ maxHeight: height }} role="img" aria-label="GMAT constellation ground tracks">
+        <svg viewBox={`0 0 ${_W} ${_H}`} style={{ maxHeight: height }} role="img" aria-label="constellation ground tracks">
           <defs>
             <radialGradient id="animOceanGlow" cx="50%" cy="42%" r="70%">
               <stop offset="0%" stopColor="rgba(11,30,65,0.85)" />
@@ -1176,13 +1257,21 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
           {/* Land */}
           <path d={AV_LAND_PATH} fill="#1a2d50" stroke="rgba(80,130,200,.25)" strokeWidth="0.5" />
 
-          {/* AOI box */}
-          <rect
-            x={_pX(aoiBox.lonMin)} y={_pY(aoiBox.latMax)}
-            width={_pX(aoiBox.lonMax) - _pX(aoiBox.lonMin)}
-            height={_pY(aoiBox.latMin) - _pY(aoiBox.latMax)}
-            fill="rgba(251,191,36,.06)" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
-          />
+          {/* AOI outline -- real coastline-derived polygon when available,
+              falling back to the old bounding rectangle otherwise */}
+          {outline.length > 0 ? (
+            <path
+              d={outlinePathD([outline, secondary])} fillRule="evenodd"
+              fill="rgba(251,191,36,.06)" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
+            />
+          ) : (
+            <rect
+              x={_pX(aoiBox.lonMin)} y={_pY(aoiBox.latMax)}
+              width={_pX(aoiBox.lonMax) - _pX(aoiBox.lonMin)}
+              height={_pY(aoiBox.latMin) - _pY(aoiBox.latMax)}
+              fill="rgba(251,191,36,.06)" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.85"
+            />
+          )}
 
           {/* Ground tracks */}
           {sats.map((o) => (
@@ -1205,7 +1294,7 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
                   <>
                     <circle r="7" fill="none" stroke="#fbbf24" strokeWidth="1.5" opacity="0.9" />
                     <text x="8" y="3" className="satTag" fill={o.color} fontSize="9" fontFamily="monospace">
-                      {o.name.replace(/^.*_(?=\d+$)/, "")}
+                      {shortSat(o.name)}
                     </text>
                   </>
                 ) : null}
@@ -1223,9 +1312,9 @@ function InlineConstellationSim({ series = {}, satellites = [], range, height = 
 
         <div className="mapLegend">
           <span><i className="dot blue" /> {sats.length} satellites tracked</span>
-          <span><i className="legLine" /> GMAT ground tracks</span>
+          <span><i className="legLine" /> ground tracks</span>
           <span><i className="aoiSwatch" /> AOI ({aoiLabel})</span>
-          <span style={{ marginLeft: "auto", opacity: 0.5, fontSize: 10 }}>Source: GMAT 2025 telemetry</span>
+          <span style={{ marginLeft: "auto", opacity: 0.5, fontSize: 10 }}>Source: mission telemetry</span>
         </div>
       </div>
     </div>
@@ -1242,10 +1331,10 @@ export function ConstellationAnimationView({ data, state }) {
         title="Constellation Orbit & Access Animator"
         sub={
           hasSeries
-            ? `Playback of real GMAT 2025 telemetry · ${state.satellites.length} satellites · ${
+            ? `Playback of real mission telemetry · ${state.satellites.length} satellites · ${
                 state.range?.start ? new Date(state.range.start).toUTCString().slice(5, 16) : ""
               } → ${state.range?.end ? new Date(state.range.end).toUTCString().slice(5, 16) : ""}`
-            : "Loading GMAT telemetry…"
+            : "Loading mission telemetry…"
         }
         className="wide"
       >
@@ -1256,12 +1345,14 @@ export function ConstellationAnimationView({ data, state }) {
             range={state.range}
             height={500}
             aoiBox={data?.coverage?.aoi || state?.aoi}
+            outline={data?.coverage?.outline || []}
+            secondary={data?.coverage?.tasmania || []}
             aoiLabel={data?.mission?.aoiRegionLabel || "Australia"}
           />
         ) : (
           <div style={{ padding: "60px 0", textAlign: "center", opacity: 0.45 }}>
             <Satellite size={40} style={{ marginBottom: 12 }} />
-            <p style={{ margin: 0 }}>Waiting for GMAT telemetry data…</p>
+            <p style={{ margin: 0 }}>Waiting for mission telemetry data…</p>
             <p style={{ fontSize: 12, marginTop: 6 }}>Ensure the Flask API is running and data has been loaded.</p>
           </div>
         )}
@@ -1274,7 +1365,7 @@ export function ConstellationAnimationView({ data, state }) {
 /* -------------------------------------------------------------------------- */
 /* REVISIT HEATMAP – grid cells over real land topology                        */
 /* -------------------------------------------------------------------------- */
-function RevisitHeatmapMap({ heatmap, colorMap, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia" }) {
+function RevisitHeatmapMap({ heatmap, colorMap, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia", outline = [], secondary = [] }) {
   /* Compute cell size from the grid step (fallback to 10 degrees) */
   const step = 10;
   const cellW = (step / 360) * MAP_W;
@@ -1287,6 +1378,8 @@ function RevisitHeatmapMap({ heatmap, colorMap, aoiBox = DEFAULT_AOI_BOX, aoiLab
     <MapCanvasBase
       showAoi
       aoiBox={aoiBox}
+      outline={outline}
+      secondary={secondary}
       legend={
         <>
           <span><i style={{ display:"inline-block",width:14,height:10,background:"#34d399",opacity:.85,borderRadius:2,marginRight:5 }} /> &lt;30 min</span>
@@ -1320,278 +1413,8 @@ function RevisitHeatmapMap({ heatmap, colorMap, aoiBox = DEFAULT_AOI_BOX, aoiLab
               strokeDasharray={insufficient ? "2,2" : undefined}
             />
             <title>{insufficient
-              ? `Lat: ${c.lat}°, Lon: ${c.lon}° | Insufficient real GMAT samples in this cell to compute a revisit gap`
+              ? `Lat: ${c.lat}°, Lon: ${c.lon}° | Insufficient real telemetry samples in this cell to compute a revisit gap`
               : `Lat: ${c.lat}°, Lon: ${c.lon}° | Avg Revisit: ${number(c.avgRevisitMin, 1)} min (${(c.colorCategory || "").toUpperCase()})`}</title>
-          </g>
-        );
-      })}
-    </MapCanvasBase>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* CONSTELLATION ANIMATOR – Keplerian SSO orbital propagation                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Compute satellite geodetic position from Keplerian elements.
- * Uses a simplified Earth-rotation model consistent with GMAT output.
- *
- * Constellation geometry (satellite count, plane count, inclination,
- * altitude) is derived from the selected mission's data.constellation
- * instead of a fixed Walker-48 assumption, so this renders the real
- * geometry of whichever mission is active (e.g. 6x8 @ 50 deg or the
- * 3x1 @ 50 deg, RAAN 0/120/240).
- *   – RAAN spacing = 360deg / planes, in-plane spacing = 360deg / sats-per-plane
- *   – Orbital period T from Kepler's 3rd law at the mission altitude
- *   – Earth rotation: omegaE = 360deg / 1436.07 min (sidereal day)
- *   – RAAN precession from the standard J2 secular drift formula:
- *     dOmega/dt = -1.5 * n * J2 * (Re/p)^2 * cos(i), which reduces to the
- *     familiar ~0.9856 deg/day at the classic 97.6 deg SSO inclination.
- */
-const EARTH_RADIUS_KM = 6371;
-const MU_KM3_S2 = 398600.4418;
-const J2 = 1.08263e-3;
-const OMEGA_EARTH_RAD_S = (2 * Math.PI) / (86164.1); // sidereal day
-
-/** Compute equatorial Cartesian from Keplerian elements (circular, e=0) */
-function keplerToECI(raan, incl, trueAnomaly, semiMajor) {
-  const r = semiMajor; // km, circular
-  // Position in orbital plane
-  const xOrb = r * Math.cos(trueAnomaly);
-  const yOrb = r * Math.sin(trueAnomaly);
-  // Rotate to ECI (RAAN about Z, incl about X)
-  const cosR = Math.cos(raan), sinR = Math.sin(raan);
-  const cosI = Math.cos(incl), sinI = Math.sin(incl);
-  const x = cosR * xOrb - sinR * cosI * yOrb;
-  const y = sinR * xOrb + cosR * cosI * yOrb;
-  const z = sinI * yOrb;
-  return { x, y, z };
-}
-
-/** Convert ECI → geodetic (lat, lon) accounting for Earth rotation */
-function eciToGeodetic(eci, elapsedS) {
-  const gst = OMEGA_EARTH_RAD_S * elapsedS; // Greenwich Sidereal Time offset
-  const lon_rad = Math.atan2(eci.y, eci.x) - gst;
-  const r_eq = Math.sqrt(eci.x ** 2 + eci.y ** 2 + eci.z ** 2);
-  const lat_rad = Math.asin(eci.z / r_eq);
-  let lon = (lon_rad * 180) / Math.PI;
-  while (lon > 180) lon -= 360;
-  while (lon < -180) lon += 360;
-  return { lat: (lat_rad * 180) / Math.PI, lon };
-}
-
-/** Sensor footprint radius in degrees, scaled from the mission altitude with a 30° half-angle */
-const SENSOR_HALF_ANGLE_DEG = 30;
-function footprintPx(altitudeKm) {
-  const footprintLatDeg = (SENSOR_HALF_ANGLE_DEG * altitudeKm) / (EARTH_RADIUS_KM * 0.7);
-  return {
-    w: (footprintLatDeg / 360) * MAP_W * 1.6,
-    h: (footprintLatDeg / 180) * MAP_H,
-  };
-}
-
-/** GSN antenna elevation mask ≈ 5°, which for a LEO satellite at the mission
- *  altitude corresponds to roughly ~26° of great-circle angle at 536 km */
-const GS_MASK_PX = (26 / 360) * MAP_W * 1.1;
-
-const GROUND_STATIONS = [
-  { lat: -27.47, lon: 153.02, name: "Brisbane" },
-  { lat: 1.35,   lon: 103.82, name: "Singapore" },
-  { lat: -33.87, lon: 151.21, name: "Sydney" },
-];
-
-const SAT_COLORS = [
-  "#22d3ee", "#a78bfa", "#34d399", "#f472b6",
-  "#fbbf24", "#3b82f6", "#fb5c73", "#86efac",
-];
-
-const TRAIL_STEPS = 14; // steps to retain for ground-track trail
-
-function AnimatedGlobeCanvas({ stepIndex, totalSteps, data }) {
-  const c = data?.constellation || {};
-  const satCount = c.configuredSatellites || 48;
-  const planes = c.planes || 8;
-  const satsPerPlane = c.satellitesPerPlane || Math.max(1, Math.round(satCount / planes));
-  const inclinationDeg = c.inclinationDeg ?? 97.6;
-  const altitudeKm = c.altitudeKm ?? 536;
-
-  const inclRad = (inclinationDeg * Math.PI) / 180;
-  const semiMajor = EARTH_RADIUS_KM + altitudeKm;
-  const orbitalPeriodS = 2 * Math.PI * Math.sqrt(semiMajor ** 3 / MU_KM3_S2);
-  const meanMotionRadS = (2 * Math.PI) / orbitalPeriodS;
-  /* Standard J2 secular RAAN drift: reduces to the familiar ~0.9856 deg/day
-     at the classic 97.6 deg SSO inclination, and correctly reverses
-     direction/magnitude for other inclinations (e.g. this mission's 50 deg). */
-  const raanDotRadS = -1.5 * meanMotionRadS * J2 * (EARTH_RADIUS_KM / semiMajor) ** 2 * Math.cos(inclRad);
-  const { w: footprintPxW, h: footprintPxH } = footprintPx(altitudeKm);
-  const aoiBox = data?.coverage?.aoi || DEFAULT_AOI_BOX;
-
-  /* elapsed seconds this animation frame represents;
-     1 full loop = 2 full orbital periods */
-  const elapsedS = (stepIndex / totalSteps) * 2 * orbitalPeriodS;
-
-  /* Build the constellation's satellite set from the active mission's real
-     geometry (satellite count, plane count, inclination) instead of a fixed
-     Walker-48 assumption. */
-  const satellites = React.useMemo(() => {
-    return Array.from({ length: satCount }, (_, i) => {
-      const planeIdx = Math.floor(i / satsPerPlane);
-      const satInPlane = i % satsPerPlane;
-      /* RAAN spacing: 360deg / planes */
-      const raan0 = (planeIdx * (360 / planes) * Math.PI) / 180;
-      /* Walker F=1: offset each plane's phase by (360/P * F/T) per plane */
-      const phaseOffset = (planeIdx * 1 * 2 * Math.PI) / satCount;
-      const ta0 = ((satInPlane * (360 / satsPerPlane) * Math.PI) / 180) + phaseOffset;
-      const color = SAT_COLORS[planeIdx % SAT_COLORS.length];
-      return { id: i, planeIdx, raan0, ta0, color };
-    });
-  }, [satCount, planes, satsPerPlane]);
-
-  /* Compute current positions */
-  const positions = satellites.map((s) => {
-    const trueAnomaly = s.ta0 + meanMotionRadS * elapsedS;
-    const raan = s.raan0 + raanDotRadS * elapsedS;
-    const eci = keplerToECI(raan, inclRad, trueAnomaly, semiMajor);
-    const geo = eciToGeodetic(eci, elapsedS);
-    return { ...s, lat: geo.lat, lon: geo.lon };
-  });
-
-  /* Compute historical trail points (last TRAIL_STEPS steps back) */
-  const trails = satellites.map((s) => {
-    const pts = [];
-    for (let k = TRAIL_STEPS; k >= 0; k--) {
-      const pastS = elapsedS - k * (orbitalPeriodS / totalSteps) * 2;
-      if (pastS < 0) continue;
-      const trueAnomaly = s.ta0 + meanMotionRadS * pastS;
-      const raan = s.raan0 + raanDotRadS * pastS;
-      const eci = keplerToECI(raan, inclRad, trueAnomaly, semiMajor);
-      const geo = eciToGeodetic(eci, pastS);
-      pts.push(geo);
-    }
-    return pts;
-  });
-
-  const gsPosArr = GROUND_STATIONS.map((gs) => ({
-    ...gs,
-    px: projX(gs.lon),
-    py: projY(gs.lat),
-  }));
-
-  return (
-    <MapCanvasBase
-      showAoi
-      aoiBox={aoiBox}
-      legend={
-        <>
-          <span><i className="dot cyan" /> Plane 1–{planes} Satellites ({satCount} total)</span>
-          <span><i className="dot green" /> Ground Stations (3 GSN)</span>
-          <span style={{ display:"flex", alignItems:"center", gap:4 }}>
-            <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="3,2" /></svg>
-            RF Line-of-Sight Contact
-          </span>
-          <span style={{ display:"flex", alignItems:"center", gap:4 }}>
-            <svg width="20" height="12"><ellipse cx="10" cy="6" rx="8" ry="5" fill="#22d3ee" fillOpacity="0.18" stroke="#22d3ee" strokeWidth="0.8" /></svg>
-            Sensor Footprint
-          </span>
-        </>
-      }
-    >
-      <defs>
-        <radialGradient id="gsGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#34d399" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-
-      {/* Ground track trails */}
-      {trails.map((pts, si) => {
-        let d = "";
-        let prev = null;
-        for (const p of pts) {
-          const x = projX(p.lon);
-          const y = projY(p.lat);
-          /* Break trail on dateline crossing */
-          if (prev && Math.abs(p.lon - prev.lon) > 120) {
-            d += `M${x.toFixed(1)} ${y.toFixed(1)}`;
-          } else {
-            d += `${prev ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
-          }
-          prev = p;
-        }
-        return (
-          <path
-            key={`trail${si}`}
-            d={d}
-            fill="none"
-            stroke={satellites[si].color}
-            strokeWidth="1"
-            strokeOpacity="0.45"
-            strokeLinejoin="round"
-          />
-        );
-      })}
-
-      {/* Sensor footprints (ellipses at satellite position) */}
-      {positions.map((s) => (
-        <ellipse
-          key={`fp${s.id}`}
-          cx={projX(s.lon)}
-          cy={projY(s.lat)}
-          rx={footprintPxW}
-          ry={footprintPxH}
-          fill={s.color}
-          fillOpacity="0.07"
-          stroke={s.color}
-          strokeWidth="0.6"
-          strokeOpacity="0.3"
-        />
-      ))}
-
-      {/* RF contact lines to ground stations */}
-      {positions.map((s) => {
-        const sx = projX(s.lon);
-        const sy = projY(s.lat);
-        return gsPosArr.map((gs) => {
-          const dist = Math.sqrt((sx - gs.px) ** 2 + (sy - gs.py) ** 2);
-          if (dist > GS_MASK_PX) return null;
-          return (
-            <line
-              key={`rf${s.id}-${gs.name}`}
-              x1={sx} y1={sy} x2={gs.px} y2={gs.py}
-              stroke="#fbbf24"
-              strokeWidth="1.2"
-              strokeDasharray="5,3"
-              strokeOpacity="0.7"
-            />
-          );
-        });
-      })}
-
-      {/* Ground Stations */}
-      {gsPosArr.map((gs) => (
-        <g key={gs.name}>
-          <circle cx={gs.px} cy={gs.py} r={GS_MASK_PX} fill="url(#gsGlow)" opacity="0.08" />
-          <circle cx={gs.px} cy={gs.py} r="5" fill="#34d399" />
-          <circle cx={gs.px} cy={gs.py} r="10" fill="none" stroke="#34d399" strokeWidth="1" opacity="0.55" />
-          <circle cx={gs.px} cy={gs.py} r="16" fill="none" stroke="#34d399" strokeWidth="0.6" opacity="0.3" strokeDasharray="3,3" />
-          <text x={gs.px + 8} y={gs.py + 4} fill="#86efac" fontSize="9" fontFamily="monospace" fontWeight="bold">{gs.name}</text>
-        </g>
-      ))}
-
-      {/* Satellite markers */}
-      {positions.map((s) => {
-        const sx = projX(s.lon);
-        const sy = projY(s.lat);
-        const isInAoi = s.lon >= aoiBox.lonMin && s.lon <= aoiBox.lonMax && s.lat >= aoiBox.latMin && s.lat <= aoiBox.latMax;
-        return (
-          <g key={`sat${s.id}`}>
-            <circle cx={sx} cy={sy} r="4" fill={s.color} opacity="0.25" />
-            <circle cx={sx} cy={sy} r="1.8" fill="#fff" stroke={s.color} strokeWidth="1.2" />
-            {isInAoi ? (
-              <circle cx={sx} cy={sy} r="6" fill="none" stroke="#fbbf24" strokeWidth="1.5" opacity="0.9" />
-            ) : null}
-            <title>{`Plane ${s.planeIdx + 1}, Sat ${(s.id % 6) + 1} · Lat ${s.lat.toFixed(2)}°, Lon ${s.lon.toFixed(2)}°`}</title>
           </g>
         );
       })}
@@ -1614,7 +1437,7 @@ export function MissionAnalyticsView({ data }) {
       <Panel
         index={0}
         title="Mission Indicators"
-        sub={`Each figure below is measured from this mission's own GMAT datasets over the ${m.analysisWindowHours ? `${number(m.analysisWindowHours, 1)} h` : ""} analysis window.`}
+        sub={`Each figure below is measured from this mission's own mission datasets over the ${m.analysisWindowHours ? `${number(m.analysisWindowHours, 1)} h` : ""} analysis window.`}
         className="wide"
       >
         <div className="gaugeGrid">
@@ -1828,7 +1651,7 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
           </ul>
         </Panel>
       ) : null}
-      <Panel index={1} title="Mission Comparison" sub="Live metrics computed from each mission's own GMAT-derived data — nothing here is estimated across missions." className="wide">
+      <Panel index={1} title="Mission Comparison" sub="Live metrics computed from each mission's own processed telemetry — nothing here is estimated across missions." className="wide">
         <div className="kpiGrid four" style={{ marginBottom: 16 }}>
           {rows.map((r, i) => (
             <KpiCard
@@ -1887,7 +1710,7 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
         </ResponsiveContainer>
       </Panel>
 
-      <Panel index={2} title="Contact & Eclipse Events" sub="Real event counts parsed from each mission's own GMAT Contact/Eclipse Locator reports" className="wide">
+      <Panel index={2} title="Contact & Eclipse Events" sub="Real event counts parsed from each mission's own contact/eclipse reports" className="wide">
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={barData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} />
@@ -1905,7 +1728,7 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
         items={[
           { metric: "AOI coverage", meaning: "Grid-cell coverage percentage from cumulative_region_coverage(), computed independently per mission from its own state history and its own AOI region.", formula: "Covered cells / total AOI grid cells × 100" },
           { metric: "Revisit / gap stats", meaning: "Derived per-mission from real satellite ground-track samples over that mission's own AOI grid.", formula: "Time between consecutive AOI passes" },
-          { metric: "RF / Optical / Eclipse events", meaning: "Direct counts parsed from each mission's own GMAT Contact Locator and Eclipse Locator report files.", formula: "Row count in the mission's parsed report" },
+          { metric: "RF / Optical / Eclipse events", meaning: "Direct counts parsed from each mission's own ground-contact log and Eclipse Locator report files.", formula: "Row count in the mission's parsed report" },
         ]}
       />
     </div>

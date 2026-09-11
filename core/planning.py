@@ -12,6 +12,7 @@ report does not carry, and this module will not extrapolate past its data.
 import numpy as np
 import pandas as pd
 
+from core.time_utils import utc_iso
 from core.footprint import (
     _bearing_deg,
     densify_track,
@@ -152,8 +153,8 @@ def revisit_analysis(state_df, camera_model, target_lat, target_lon):
         "target": {"lat": target_lat, "lon": target_lon},
         "opportunities": int(len(opps)),
         "satellitesInvolved": sorted(opps["satellite"].unique().tolist()),
-        "firstOpportunity": times.min().isoformat(),
-        "lastOpportunity": times.max().isoformat(),
+        "firstOpportunity": utc_iso(times.min()),
+        "lastOpportunity": utc_iso(times.max()),
         "spanHours": round(span_h, 2),
         "meanRevisitHours": round(float(gaps_h.mean()), 2) if len(gaps_h) else None,
         "medianRevisitHours": round(float(gaps_h.median()), 2) if len(gaps_h) else None,
@@ -214,9 +215,9 @@ def schedule_requests(state_df, camera_model, requests, min_gap_seconds=60):
                 "priority": int(req.get("priority", 5)),
                 "target": {"lat": float(req["lat"]), "lon": float(req["lon"])},
                 "satellite": sat,
-                "acquisitionTime": opp.timestamp.isoformat(),
-                "windowStart": opp.windowStart.isoformat(),
-                "windowEnd": opp.windowEnd.isoformat(),
+                "acquisitionTime": utc_iso(opp.timestamp),
+                "windowStart": utc_iso(opp.windowStart),
+                "windowEnd": utc_iso(opp.windowEnd),
                 "orbit": int(opp.orbit),
                 "crossTrackKm": round(float(opp.crossTrackKm), 2),
                 "offNadirFraction": round(float(opp.offNadirFraction), 3),
@@ -259,7 +260,7 @@ def coverage_replay(state_df, camera_model, steps=24, resolution_deg=1.0, region
         _, _, pct = cumulative_region_coverage(upto, swath_km, resolution_deg=resolution_deg, region=region)
         frames.append({
             "step": i,
-            "timestamp": edge.isoformat(),
+            "timestamp": utc_iso(edge),
             "elapsedHours": round((edge - start).total_seconds() / 3600.0, 2),
             "cumulativeCoveragePercent": round(float(pct), 3),
             "samplesUsed": int(len(upto)),

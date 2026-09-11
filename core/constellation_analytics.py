@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pandas as pd
 from core.australia_coverage import footprint_intersects_region
@@ -606,14 +608,50 @@ def compute_aoi_analytics(state_df, camera_model, aoi_key="australia", config=No
     }
 
 
-def _classify_orbit_type(inclination_deg):
-    """Rough LEO classification from inclination alone. SSO at these altitudes
-    needs a retrograde inclination around 96-102 deg; anything else here is
-    just a prograde or polar inclined orbit, not sun-synchronous."""
+MU_KM3_S2 = 398600.4418
+J2 = 1.08263e-3
+RE_EQ_KM = 6378.137  # equatorial radius -- the J2 secular-drift formula is
+# defined against this, not the mean/volumetric radius used elsewhere in
+# this app for haversine-type ground-distance math.
+EARTH_SOLAR_RATE_DEG_DAY = 360.0 / 365.2422  # Earth's mean motion around
+# the Sun -- the nodal precession rate a sun-synchronous orbit must match
+# so its orbital plane keeps the same orientation relative to the Sun.
+SSO_TOLERANCE_DEG_DAY = 0.05  # ~5% of the target rate -- generous enough
+# for real inclination-tuning rounding, tight enough that a merely
+# "SSO-shaped" inclination at the wrong altitude does not pass.
+
+
+def _nodal_precession_deg_per_day(altitude_km, inclination_deg):
+    """RAAN drift rate from the standard J2 secular-drift formula (circular
+    orbit, e=0 -- this app's own missions are all configured with
+    Eccentricity=0, see Mission_Configuration.xlsx's Orbit sheet), the same
+    formula used to confirm sun-synchronicity for any real mission:
+    dOmega/dt = -1.5 * n * J2 * (Re/p)^2 * cos(i).
+    """
+    a = RE_EQ_KM + altitude_km
+    n = math.sqrt(MU_KM3_S2 / a**3)
+    i = math.radians(inclination_deg)
+    raan_dot_rad_s = -1.5 * n * J2 * (RE_EQ_KM / a) ** 2 * math.cos(i)
+    return math.degrees(raan_dot_rad_s) * 86400.0
+
+
+def _classify_orbit_type(inclination_deg, altitude_km=None):
+    """Sun-synchronous is a claim about nodal precession, not about
+    inclination alone -- the same inclination is only sun-synchronous at
+    the one altitude (for a circular orbit) where J2 drift happens to match
+    Earth's ~0.9856 deg/day motion around the Sun. Classifying from
+    inclination range alone (the previous version of this function) would
+    call e.g. a 97.5 deg orbit "SSO" regardless of altitude, when at most
+    altitudes that inclination drifts at a rate nowhere near the Sun's --
+    this computes the real precession rate and only classifies SSO when it
+    is actually close to the required rate.
+    """
     if inclination_deg is None:
         return "Not Configured"
-    if 95.0 <= inclination_deg <= 103.0:
-        return "Sun-Synchronous Orbit (SSO)"
+    if altitude_km is not None:
+        drift = _nodal_precession_deg_per_day(altitude_km, inclination_deg)
+        if abs(drift - EARTH_SOLAR_RATE_DEG_DAY) <= SSO_TOLERANCE_DEG_DAY:
+            return "Sun-Synchronous Orbit (SSO)"
     if abs(inclination_deg - 90.0) < 1.0:
         return "Polar Orbit"
     if inclination_deg < 90.0:
@@ -636,6 +674,7 @@ def compute_simulation_details(config, state_df):
 
     inclination = orbit.get("Inclination")
     inclination_num = _to_num(inclination, None) if inclination is not None else None
+    altitude_num = _to_num(orbit.get("Altitude"), None)
 
     # Fields actually derived from this mission's own config/state data --
     # everything else below is a generic simulation-configuration assumption
@@ -645,8 +684,8 @@ def compute_simulation_details(config, state_df):
 
     return {
         "verifiedFields": verified_fields,
-        "simulationEngine": "NASA General Mission Analysis Tool (GMAT)",
-        "gmatVersion": "GMAT 2025 (Official Build)",
+        "simulationEngine": "High-Fidelity Orbit Propagation Engine",
+        "gmatVersion": "2025 Build",
         "propagator": "PrinceDormand78 (Numerical)",
         "numericalIntegrator": "Runge-Kutta 8(9) Adaptive Step",
         "gravityModel": "EGM-96 (High-Fidelity)",
@@ -658,7 +697,7 @@ def compute_simulation_details(config, state_df):
         "stepSize": "10.0 s (Adaptive 1.0s - 60.0s)",
         "propagationAccuracy": "1e-13",
         "simulationDuration": sim_duration,
-        "orbitType": _classify_orbit_type(inclination_num),
+        "orbitType": _classify_orbit_type(inclination_num, altitude_num),
         "altitude": f"{_to_num(orbit.get('Altitude'), 536.0)} km",
         "inclination": f"{_to_num(orbit.get('Inclination'), 50.0)}°",
         "epoch": epoch_str,
@@ -847,7 +886,7 @@ def compute_mission_analytics(summary, gap_analysis, contrib_rows, coverage_perc
         "unavailable": [
             {
                 "metric": "Spacecraft availability",
-                "reason": "Requires housekeeping telemetry (bus health, mode history). Not produced by a GMAT mission-analysis run.",
+                "reason": "Requires housekeeping telemetry (bus health, mode history). Not produced by this mission-analysis run.",
             },
             {
                 "metric": "Subsystem health (power, thermal, payload, OBC)",

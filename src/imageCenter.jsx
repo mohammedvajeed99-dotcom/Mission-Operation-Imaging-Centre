@@ -61,7 +61,22 @@ const coord = (v, pos, neg) =>
    hook. Falls back to bare fetch only for callers outside the provider. */
 async function getJSON(url, fetcher = fetch) {
   const r = await fetcher(url);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) {
+    // Every error route in api_image_center.py returns a real, specific
+    // {error: "..."} body (e.g. "No coordinates on file for 'X'.") -- a
+    // bare "404 Not Found" thrown here discarded that and showed the
+    // generic HTTP reason instead, wherever this error reaches the UI
+    // (e.g. the "See Near Opportunities" nearbyError banner).
+    let detail = "";
+    try {
+      const body = await r.clone().json();
+      detail = body?.error ? `: ${body.error}` : "";
+    } catch {
+      // Non-JSON error body (e.g. a proxy/server error page) -- fall
+      // back to the HTTP status alone, same as before.
+    }
+    throw new Error(`${r.status} ${r.statusText}${detail}`);
+  }
   return r.json();
 }
 
@@ -70,6 +85,78 @@ async function getJSON(url, fetcher = fetch) {
 function icUrl(path, missionId) {
   const sep = path.includes("?") ? "&" : "?";
   return `${IC}${path}${sep}mission=${encodeURIComponent(missionId || "asc074_6x8")}`;
+}
+
+/* --------------------- live generation progress --------------------- */
+
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "—";
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+const STAGE_LABELS = {
+  starting: "Starting…",
+  searching: "Searching the Sentinel-2 archive…",
+  reading: "Reading source imagery…",
+  simulating: "Running the sensor simulation…",
+  validating: "Assessing quality…",
+  writing: "Writing output files…",
+};
+
+/* Polls the backend's live-generation snapshot (core.generation_progress,
+   GET /api/imagecenter/progress) once a second while `active`, so a Generate
+   button or a running batch shows the real current stage plus elapsed/ETA
+   instead of a bare spinner. One generation runs at a time per mission (see
+   the backend route), so this same endpoint serves a single-image generate,
+   a per-row catalog generate and a batch run alike -- resolution-agnostic,
+   the same polling applies whether the request was 512, 1024 or 2048 px. */
+function useGenerationProgress(missionId, active) {
+  const { authFetch } = useAccess();
+  const [progress, setProgress] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!active) {
+      setProgress(null);
+      return undefined;
+    }
+    let stopped = false;
+    const poll = () => {
+      getJSON(icUrl("/progress", missionId), authFetch)
+        .then((snap) => { if (!stopped) setProgress(snap && snap.active ? snap : null); })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 1000);
+    return () => { stopped = true; clearInterval(id); };
+  }, [missionId, active, authFetch]);
+
+  return progress;
+}
+
+/* One live status line: current stage (with the backend's own descriptive
+   detail when it has one), elapsed time, and an estimated remaining time
+   once the backend has enough history to offer one. `fallback` covers the
+   gap between a button click and the first successful poll. */
+function GenerationStatusLine({ progress, fallback }) {
+  if (!progress) {
+    return fallback ? (
+      <p className="icBatchNote"><Loader2 size={12} className="icSpin" /> {fallback}</p>
+    ) : null;
+  }
+  const text = progress.detail || STAGE_LABELS[progress.stage] || "Working…";
+  const eta = progress.estimateRemainingSeconds;
+  return (
+    <p className="icBatchNote">
+      <Loader2 size={12} className="icSpin" /> {text}
+      {" · "}{formatDuration(progress.elapsedSeconds)} elapsed
+      {eta !== null && eta !== undefined ? ` · ~${formatDuration(eta)} remaining (est.)` : ""}
+    </p>
+  );
 }
 
 /* ------------------- Region-focused footprint map -------------------
@@ -277,7 +364,7 @@ function DownloadMenu({ imageId, missionId, disabled, assets, onDownloaded }) {
 /* Provenance of a single field, so a reader can tell a measurement from a
    modelled value at a glance rather than having to know the pipeline. */
 const TAG_TITLE = {
-  measured: "From GMAT telemetry or mission configuration",
+  measured: "From mission telemetry or mission configuration",
   derived: "Computed from measured values",
   simulated: "Produced by the sensor/atmosphere simulation — not a measurement",
   assumed: "Representative value, not configured for this mission",
@@ -373,12 +460,13 @@ function ImageViewer({ src, alt }) {
   );
 }
 
-function ImageDetail({ imageId, missionId, onClose, onChanged }) {
+function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged }) {
   const { authFetch, withAccess } = useAccess();
   const [detail, setDetail] = React.useState(null);
   const [geometry, setGeometry] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
+  const progress = useGenerationProgress(missionId, busy);
 
   const load = React.useCallback(() => {
     setError("");
@@ -398,7 +486,7 @@ function ImageDetail({ imageId, missionId, onClose, onChanged }) {
       const r = await authFetch(icUrl(`/image/${imageId}/generate`, missionId), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regenerate }),
+        body: JSON.stringify({ regenerate, maxPixels }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "Generation failed");
@@ -466,10 +554,10 @@ function ImageDetail({ imageId, missionId, onClose, onChanged }) {
 
       {error ? <p className="icError">{error}</p> : null}
       {busy ? (
-        <p className="icNotice">
-          Retrieving Sentinel-2 source imagery, mosaicking granules and simulating the
-          pushbroom sensor. This typically takes 1–2 minutes.
-        </p>
+        <GenerationStatusLine
+          progress={progress}
+          fallback="Retrieving Sentinel-2 source imagery and simulating the pushbroom sensor…"
+        />
       ) : null}
 
       {generated && validation.issues?.length ? (
@@ -511,6 +599,11 @@ function ImageDetail({ imageId, missionId, onClose, onChanged }) {
           <Row label="Observation mode" value={detail.cameraOrientation || "Nadir"} tag="assumed" />
           <Row label="Ground resolution" value={`${num(deliveredGsd, 1)} m/px delivered`} tag="derived" infoKey="estimated_ground_resolution" />
           <Row label="AOI / target" value={detail.aoiName} tag="derived" />
+          <Row label="District" value={detail.district} tag="derived" />
+          <Row label="City / Town" value={detail.city} tag="derived" />
+          {detail.district || detail.city ? (
+            <p className="icGeoAttribution">District/City via OpenStreetMap (Nominatim), © OpenStreetMap contributors</p>
+          ) : null}
 
           <h4>Quality</h4>
           <Row label="Quality score" value={quality.score != null ? `${num(quality.score, 1)} / 100 · ${quality.grade}` : "—"} tag="derived" infoKey="image_quality_score" />
@@ -561,10 +654,10 @@ function ImageDetail({ imageId, missionId, onClose, onChanged }) {
         <div className="icProvenance">
           <h4>Data provenance</h4>
           <div className="icProvGrid">
-            <div><span>Simulated imagery</span><p>Sensor response, acquisition timing and geometry are modelled from GMAT telemetry and the mission camera configuration.</p></div>
+            <div><span>Simulated imagery</span><p>Sensor response, acquisition timing and geometry are modelled from mission telemetry and the mission camera configuration.</p></div>
             <div><span>Real source reflectance</span><p>{prov.sourceCollection || "Sentinel-2 L2A"}{prov.sourceDatetime ? ` · acquired ${String(prov.sourceDatetime).slice(0, 10)}` : ""}{prov.mosaicSceneCount ? ` · ${prov.mosaicSceneCount} granule(s) mosaicked` : ""}</p></div>
             <div><span>Assumed parameters</span><p>Integration time, read noise, full well, MTF sigma and the atmospheric model are representative values, not mission-configured data.</p></div>
-            <div><span>Validated orbital data</span><p>Sub-satellite position, altitude, orbit and pass number come from the mission's GMAT state report.</p></div>
+            <div><span>Validated orbital data</span><p>Sub-satellite position, altitude, orbit and pass number come from the mission's state report.</p></div>
           </div>
           <p className="icProvNote">{prov.note}</p>
         </div>
@@ -722,6 +815,14 @@ export function ImageCatalogView({ missionId }) {
   const [error, setError] = React.useState("");
   const [selected, setSelected] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
+
+  // "See Near Opportunities": when the current filters match nothing, this
+  // holds the geographically nearest real opportunity instead (or
+  // available:false once searched and genuinely nothing exists anywhere).
+  // null = not searched yet (still showing the plain empty state).
+  const [nearby, setNearby] = React.useState(null);
+  const [nearbyLoading, setNearbyLoading] = React.useState(false);
+  const [nearbyError, setNearbyError] = React.useState("");
   const [showFilters, setShowFilters] = React.useState(false);
 
   const [picked, setPicked] = React.useState(() => new Set());
@@ -734,7 +835,7 @@ export function ImageCatalogView({ missionId }) {
 
   const [q, setQ] = React.useState("");
   const [f, setF] = React.useState({
-    satellite: "", plane: "", orbit: "", state: "", status: "",
+    satellite: "", plane: "", orbit: "", state: "", district: "", city: "", status: "",
     timeFrom: "", timeTo: "", cloudMax: "", qualityMin: "",
     latMin: "", latMax: "", lonMin: "", lonMax: "",
   });
@@ -746,6 +847,17 @@ export function ImageCatalogView({ missionId }) {
     return p.toString();
   }, [q, f, offset, missionId]);
 
+  /* Same filter set as `query` above, minus paging -- sent to /facets so
+     each dropdown's OWN options narrow to what the other currently-applied
+     filters actually leave reachable (e.g. picking a State narrows
+     District/City instead of always listing the whole mission's set). */
+  const facetsQuery = React.useMemo(() => {
+    const p = new URLSearchParams({ mission: missionId || "asc074_6x8" });
+    if (q.trim()) p.set("q", q.trim());
+    Object.entries(f).forEach(([k, v]) => { if (String(v).trim()) p.set(k, v); });
+    return p.toString();
+  }, [q, f, missionId]);
+
   const load = React.useCallback(() => {
     setLoading(true); setError("");
     getJSON(`${IC}/catalog?${query}`, authFetch)
@@ -755,8 +867,32 @@ export function ImageCatalogView({ missionId }) {
   }, [query, authFetch]);
 
   React.useEffect(load, [load]);
-  React.useEffect(() => { getJSON(icUrl("/facets", missionId), authFetch).then(setFacets).catch(() => {}); }, [missionId, authFetch]);
+  React.useEffect(() => {
+    getJSON(`${IC}/facets?${facetsQuery}`, authFetch).then(setFacets).catch(() => {});
+  }, [facetsQuery, authFetch]);
   React.useEffect(() => { setOffset(0); }, [missionId]);
+
+  // A nearby-opportunity result is only ever valid for the exact filter
+  // combination that produced it. `query` already changes on every filter
+  // edit (state/district/city/satellite/status/... all included), so
+  // resetting here covers every "filters changed after a nearby result was
+  // shown" case in one place, instead of threading a reset call through
+  // every individual filter setter.
+  React.useEffect(() => { setNearby(null); setNearbyError(""); }, [query]);
+
+  const findNearby = async () => {
+    setNearbyLoading(true); setNearbyError("");
+    try {
+      const p = new URLSearchParams({ mission: missionId || "asc074_6x8" });
+      Object.entries(f).forEach(([k, v]) => { if (String(v).trim()) p.set(k, v); });
+      const d = await getJSON(`${IC}/nearest?${p.toString()}`, authFetch);
+      setNearby(d);
+    } catch (e) {
+      setNearbyError(String(e.message || e));
+    } finally {
+      setNearbyLoading(false);
+    }
+  };
 
   const generate = async (id) => {
     setBusyId(id);
@@ -767,6 +903,18 @@ export function ImageCatalogView({ missionId }) {
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "Generation failed");
       load();
+      // The "See Near Opportunities" fallback row (nearby.opportunity) is a
+      // one-off snapshot from a separate endpoint, not a row inside `rows`
+      // -- load() refreshes `rows` but never touches it, so generating the
+      // fallback opportunity itself (a real, reproduced case: the whole
+      // point of the feature is showing an image outside the normal
+      // filtered set) left it stuck showing "Not Generated" forever even
+      // though the file was written and the request answered 200 OK.
+      setNearby((prev) =>
+        prev?.opportunity?.imageId === id && j.image
+          ? { ...prev, opportunity: j.image }
+          : prev
+      );
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -805,7 +953,7 @@ export function ImageCatalogView({ missionId }) {
 
     cancelRef.current = false;
     setError("");
-    setBatch({ total: queue.length, done: 0, current: null, results: [], running: true, cancelled: false });
+    setBatch({ total: queue.length, done: 0, current: null, results: [], running: true, cancelled: false, startedAt: Date.now() });
 
     for (let i = 0; i < queue.length; i += 1) {
       if (cancelRef.current) {
@@ -837,6 +985,68 @@ export function ImageCatalogView({ missionId }) {
     load();
   };
 
+  const progress = useGenerationProgress(missionId, !!busyId || !!batch?.running);
+
+  // Real, freshly-generated items only -- a cache hit resolves near-instantly
+  // and would drag a naive average down, underestimating the time left for
+  // the items that actually still need a real generation.
+  const batchRealDone = batch ? batch.results.filter((r) => r.ok && !r.cached).length : 0;
+  const batchElapsedSec = batch?.startedAt ? (Date.now() - batch.startedAt) / 1000 : null;
+  const batchAvgSec = batchRealDone > 0 && batchElapsedSec !== null
+    ? batchElapsedSec / batchRealDone
+    : progress?.estimateSeconds ?? null;
+  const batchRemainingCount = batch ? Math.max(batch.total - batch.results.length, 0) : 0;
+  const batchEtaSec = batch?.running && batchAvgSec !== null ? batchAvgSec * batchRemainingCount : null;
+
+  /* One row's markup, shared by the normal rows.map() below AND the
+     "See Near Opportunities" fallback result -- reuses the exact same
+     table structure/actions instead of a second, duplicate card component. */
+  const renderRow = (r) => {
+    const gen = r.generationStatus === "Generated";
+    return (
+      <tr key={r.imageId} className={selected === r.imageId ? "icSelected" : ""}>
+        <td className="icPickCol">
+          <input
+            type="checkbox"
+            checked={picked.has(r.imageId)}
+            disabled={batch?.running}
+            onChange={() => togglePick(r.imageId)}
+            title={gen ? "Already generated — regenerating is not part of a batch" : "Queue for batch generation"}
+          />
+        </td>
+        <td><button className="icIdBtn" onClick={() => setSelected(r.imageId)}>{r.imageId}</button></td>
+        <td>{r.satellite}</td>
+        <td>{r.orbit}</td>
+        <td>{r.captureDate}</td>
+        <td>{r.captureTimeUtc}</td>
+        <td>{coord(r.latitude, "N", "S")}</td>
+        <td>{coord(r.longitude, "E", "W")}</td>
+        <td>{num(r.altitudeKm, 1)} km</td>
+        <td>{r.australianState}</td>
+        <td>{r.district || "—"}</td>
+        <td>{r.city || "—"}</td>
+        <td><StatusPill status={r.generationStatus} /></td>
+        <td>
+          {gen ? (
+            <img className="icThumbSm" src={withAccess(icUrl(`/image/${r.imageId}/preview?size=thumb`, missionId))} alt="" loading="lazy"
+                 onClick={() => setSelected(r.imageId)} />
+          ) : <span className="icMuted">—</span>}
+        </td>
+        <td>
+          <button className="icBtn icBtnPrimary icBtnSm"
+                  disabled={busyId === r.imageId || batch?.running}
+                  onClick={() => generate(r.imageId)}>
+            {busyId === r.imageId || batch?.current === r.imageId
+              ? <Loader2 size={13} className="icSpin" />
+              : gen ? <CheckCircle2 size={13} /> : <Camera size={13} />}
+            {batch?.current === r.imageId ? "Queued" : busyId === r.imageId ? "Working" : gen ? "Done" : "Generate"}
+          </button>
+        </td>
+        <td><DownloadMenu imageId={r.imageId} missionId={missionId} disabled={!gen} assets={r.assets} onDownloaded={load} /></td>
+      </tr>
+    );
+  };
+
   return (
     <section className="icWrap">
       <div className="icHead">
@@ -844,7 +1054,7 @@ export function ImageCatalogView({ missionId }) {
           <p className="icEyebrow">Mission Image Center</p>
           <h2>Image Catalog</h2>
           <p className="icSub">
-            Every imaging opportunity derived from GMAT telemetry. Images are generated
+            Every imaging opportunity derived from mission telemetry. Images are generated
             on demand — nothing is pre-rendered.
           </p>
         </div>
@@ -937,6 +1147,18 @@ export function ImageCatalogView({ missionId }) {
               {facets.states.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
+          <label>District
+            <select value={f.district} onChange={(e) => setFilter("district", e.target.value)}>
+              <option value="">All</option>
+              {(facets.districts || []).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label>City / Town
+            <select value={f.city} onChange={(e) => setFilter("city", e.target.value)}>
+              <option value="">All</option>
+              {(facets.cities || []).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
           <label>Status
             <select value={f.status} onChange={(e) => setFilter("status", e.target.value)}>
               <option value="">All</option>
@@ -980,6 +1202,12 @@ export function ImageCatalogView({ missionId }) {
               {batch.running
                 ? `Generating ${Math.min(batch.done + 1, batch.total)} of ${batch.total}`
                 : batch.cancelled ? "Batch cancelled" : `Batch complete — ${batch.total} processed`}
+              {batch.running ? (
+                <span className="icBatchTiming">
+                  {" · "}{formatDuration(batchElapsedSec)} elapsed
+                  {batchEtaSec !== null ? ` · ~${formatDuration(batchEtaSec)} remaining (est.)` : ""}
+                </span>
+              ) : null}
             </strong>
             {batch.running ? (
               <button className="icBtn icBtnGhost icBtnSm" onClick={() => { cancelRef.current = true; }}>
@@ -1000,11 +1228,10 @@ export function ImageCatalogView({ missionId }) {
           </div>
 
           {batch.running ? (
-            <p className="icBatchNote">
-              <Loader2 size={12} className="icSpin" /> {batch.current}
-              {" — retrieving Sentinel-2 source imagery and simulating the sensor pass. "}
-              Each image takes 1–2 minutes; leaving this page stops the queue.
-            </p>
+            <GenerationStatusLine
+              progress={progress}
+              fallback={`${batch.current} — retrieving Sentinel-2 source imagery and simulating the sensor pass.`}
+            />
           ) : null}
 
           {batch.results.length ? (
@@ -1021,6 +1248,16 @@ export function ImageCatalogView({ missionId }) {
               ))}
             </div>
           ) : null}
+        </div>
+      ) : busyId ? (
+        <div className="icBatch">
+          <div className="icBatchTop">
+            <strong>Generating {busyId}</strong>
+          </div>
+          <GenerationStatusLine
+            progress={progress}
+            fallback="Retrieving Sentinel-2 source imagery and simulating the sensor pass…"
+          />
         </div>
       ) : null}
 
@@ -1039,57 +1276,51 @@ export function ImageCatalogView({ missionId }) {
               </th>
               <th>Image ID</th><th>Satellite</th><th>Orbit</th><th>Date</th><th>Time (UTC)</th>
               <th>Latitude</th><th>Longitude</th><th title="Instantaneous Geodetic Altitude at time of capture, not the fixed Nominal Orbit Altitude">Altitude</th><th>AOI</th>
+              <th>District</th><th>City</th>
               <th>Status</th><th>Preview</th><th>Generate</th><th>Download</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={14} className="icMuted">Loading catalog…</td></tr>
+              <tr><td colSpan={16} className="icMuted">Loading catalog…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={14} className="icMuted">No opportunities match these filters.</td></tr>
-            ) : rows.map((r) => {
-              const gen = r.generationStatus === "Generated";
-              return (
-                <tr key={r.imageId} className={selected === r.imageId ? "icSelected" : ""}>
-                  <td className="icPickCol">
-                    <input
-                      type="checkbox"
-                      checked={picked.has(r.imageId)}
-                      disabled={batch?.running}
-                      onChange={() => togglePick(r.imageId)}
-                      title={gen ? "Already generated — regenerating is not part of a batch" : "Queue for batch generation"}
-                    />
-                  </td>
-                  <td><button className="icIdBtn" onClick={() => setSelected(r.imageId)}>{r.imageId}</button></td>
-                  <td>{r.satellite}</td>
-                  <td>{r.orbit}</td>
-                  <td>{r.captureDate}</td>
-                  <td>{r.captureTimeUtc}</td>
-                  <td>{coord(r.latitude, "N", "S")}</td>
-                  <td>{coord(r.longitude, "E", "W")}</td>
-                  <td>{num(r.altitudeKm, 1)} km</td>
-                  <td>{r.australianState}</td>
-                  <td><StatusPill status={r.generationStatus} /></td>
-                  <td>
-                    {gen ? (
-                      <img className="icThumbSm" src={withAccess(icUrl(`/image/${r.imageId}/preview?size=thumb`, missionId))} alt="" loading="lazy"
-                           onClick={() => setSelected(r.imageId)} />
-                    ) : <span className="icMuted">—</span>}
-                  </td>
-                  <td>
-                    <button className="icBtn icBtnPrimary icBtnSm"
-                            disabled={busyId === r.imageId || batch?.running}
-                            onClick={() => generate(r.imageId)}>
-                      {busyId === r.imageId || batch?.current === r.imageId
-                        ? <Loader2 size={13} className="icSpin" />
-                        : gen ? <CheckCircle2 size={13} /> : <Camera size={13} />}
-                      {batch?.current === r.imageId ? "Queued" : busyId === r.imageId ? "Working" : gen ? "Done" : "Generate"}
-                    </button>
-                  </td>
-                  <td><DownloadMenu imageId={r.imageId} missionId={missionId} disabled={!gen} assets={r.assets} onDownloaded={load} /></td>
-                </tr>
-              );
-            })}
+              nearbyLoading ? (
+                <tr><td colSpan={16} className="icMuted icEmptyRow">
+                  <Loader2 size={13} className="icSpin" /> Finding nearest opportunity…
+                </td></tr>
+              ) : nearby === null ? (
+                <tr><td colSpan={16} className="icMuted icEmptyRow">
+                  No opportunity available for this combination of filters — try a different District, City, State or other filter.
+                  {f.city ? (
+                    <div className="icNearbyPrompt">
+                      <button type="button" className="icBtn icBtnGhost icBtnSm" onClick={findNearby}>
+                        <MapPin size={13} /> See Near Opportunities
+                      </button>
+                    </div>
+                  ) : null}
+                </td></tr>
+              ) : nearbyError ? (
+                <tr><td colSpan={16} className="icMuted icEmptyRow">
+                  Could not search for a nearby opportunity: {nearbyError}
+                </td></tr>
+              ) : !nearby.available ? (
+                <tr><td colSpan={16} className="icMuted icEmptyRow">No nearby opportunities available.</td></tr>
+              ) : (
+                <>
+                  <tr className="icNearbyBannerRow">
+                    <td colSpan={16} className="icNearbyBanner">
+                      <strong>Nearby Opportunity</strong>
+                      <span>
+                        No opportunity found in {nearby.fromCity}. Showing the nearest available opportunity
+                        instead — <strong>{nearby.distanceKm} km</strong> from {nearby.fromCity}
+                        {nearby.withinSelectedState ? "" : (nearby.fromState ? `, outside ${nearby.fromState}` : "")}.
+                      </span>
+                    </td>
+                  </tr>
+                  {renderRow(nearby.opportunity)}
+                </>
+              )
+            ) : rows.map(renderRow)}
           </tbody>
         </table>
       </div>
@@ -1107,7 +1338,8 @@ export function ImageCatalogView({ missionId }) {
       {selected ? (
         <div className="icModal" role="dialog" aria-modal="true">
           <div className="icModalInner">
-            <ImageDetail imageId={selected} missionId={missionId} onClose={() => setSelected(null)} onChanged={load} />
+            <ImageDetail imageId={selected} missionId={missionId} maxPixels={maxPixels}
+                         onClose={() => setSelected(null)} onChanged={load} />
           </div>
         </div>
       ) : null}
@@ -1196,6 +1428,263 @@ export function ImageGalleryView({ missionId }) {
         <div className="icModal" role="dialog" aria-modal="true">
           <div className="icModalInner">
             <ImageDetail imageId={selected} missionId={missionId} onClose={() => setSelected(null)} onChanged={load} />
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/* ==================== Global Location Explorer ====================
+   Country -> State -> District -> City, across every mission at once.
+   Reuses the exact same catalog/filter machinery as the per-mission Image
+   Catalog above (via the backend's /location/* routes, which loop
+   core.missions.MISSIONS and call the same _apply_filters()) -- this
+   component adds no second location data model of its own, and generation
+   is delegated entirely to the existing ImageDetail/generate() flow below,
+   never reimplemented. An empty result is reported as NOT AVAILABLE, never
+   padded with a placeholder row. */
+
+function locationQuery(filter) {
+  const p = new URLSearchParams();
+  if (filter.country) p.set("country", filter.country);
+  if (filter.state) p.set("state", filter.state);
+  if (filter.district) p.set("district", filter.district);
+  if (filter.city) p.set("city", filter.city);
+  return p;
+}
+
+function useLocationFacets(filter) {
+  const { authFetch } = useAccess();
+  const [facets, setFacets] = React.useState(null);
+  React.useEffect(() => {
+    getJSON(`${IC}/location/facets?${locationQuery(filter).toString()}`, authFetch)
+      .then(setFacets)
+      .catch(() => setFacets(null));
+  }, [filter.country, filter.state, filter.district, filter.city, authFetch]);
+  return facets;
+}
+
+function useLocationOpportunities(filter, refreshKey) {
+  const { authFetch } = useAccess();
+  const [result, setResult] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+  React.useEffect(() => {
+    setLoading(true);
+    setError("");
+    getJSON(`${IC}/location/opportunities?${locationQuery(filter).toString()}`, authFetch)
+      .then(setResult)
+      .catch((e) => {
+        // Distinct from a genuine zero-match result: this is the lookup
+        // itself failing (network/server error), not "no opportunities
+        // exist here" -- the two must not look the same to the reviewer.
+        setResult(null);
+        setError(String(e.message || e));
+      })
+      .finally(() => setLoading(false));
+  }, [filter.country, filter.state, filter.district, filter.city, refreshKey, authFetch]);
+  return { result, loading, error };
+}
+
+export function GlobalLocationExplorer() {
+  const { withAccess } = useAccess();
+  const [filter, setFilterState] = React.useState({ country: "", state: "", district: "", city: "" });
+  const [selected, setSelected] = React.useState(null); // { imageId, missionId }
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  // Cascade behaviour required by the spec: picking a level resets every
+  // level below it, so a stale District/City from a previous State can
+  // never silently stay selected.
+  const setField = (key, value) => {
+    setFilterState((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "country") { next.state = ""; next.district = ""; next.city = ""; }
+      else if (key === "state") { next.district = ""; next.city = ""; }
+      else if (key === "district") { next.city = ""; }
+      return next;
+    });
+  };
+
+  const facets = useLocationFacets(filter);
+  const { result, loading, error } = useLocationOpportunities(filter, refreshKey);
+  const opportunities = result?.opportunities || [];
+  const available = !!result?.available;
+
+  // Synthetic map geometry from the REAL matching opportunities' own min/max
+  // lat/lon -- a bounding box + centroid, reusing FootprintMap exactly as
+  // built for the per-image detail view. Not a true administrative
+  // boundary polygon (no such dataset exists in this project); this is
+  // real-data-derived, not a fabricated shape.
+  const mapGeometry = React.useMemo(() => {
+    const lats = opportunities.map((o) => o.latitude).filter((v) => v != null);
+    const lons = opportunities.map((o) => o.longitude).filter((v) => v != null);
+    if (!lats.length) return null;
+    const latMin = Math.min(...lats), latMax = Math.max(...lats);
+    const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+    const latC = lats.reduce((a, b) => a + b, 0) / lats.length;
+    const lonC = lons.reduce((a, b) => a + b, 0) / lons.length;
+    const padLat = Math.max((latMax - latMin) / 2, 0.15);
+    const padLon = Math.max((lonMax - lonMin) / 2, 0.15);
+    return {
+      footprint: [
+        { lon: lonMin - padLon, lat: latMax + padLat },
+        { lon: lonMax + padLon, lat: latMax + padLat },
+        { lon: lonMax + padLon, lat: latMin - padLat },
+        { lon: lonMin - padLon, lat: latMin - padLat },
+      ],
+      satellitePosition: { lat: latC, lon: lonC },
+    };
+  }, [opportunities]);
+
+  const csvUrl = withAccess(`${IC}/location/opportunities.csv?${locationQuery(filter).toString()}`);
+  const selectedLabel = [filter.city, filter.district, filter.state, filter.country].filter(Boolean).join(", ");
+  const clearFilters = () => setFilterState({ country: "", state: "", district: "", city: "" });
+
+  return (
+    <section className="icWrap">
+      <div className="icHead">
+        <div>
+          <p className="icEyebrow">Mission Image Center</p>
+          <h2>Global Location Explorer</h2>
+          <p className="icSub">
+            Country → State → District → City — find every real mission, satellite and imaging
+            opportunity for a location, across the whole fleet. An empty result here means no
+            valid opportunity currently exists; nothing shown is ever fabricated.
+          </p>
+        </div>
+      </div>
+
+      <div className="icFilters icLocFilters">
+        <label>Country
+          <select value={filter.country} onChange={(e) => setField("country", e.target.value)}>
+            <option value="">All Countries</option>
+            {(facets?.countries || []).map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label>State / Territory
+          <select value={filter.state} onChange={(e) => setField("state", e.target.value)}>
+            <option value="">All States</option>
+            {(facets?.states || []).map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label>District
+          <select value={filter.district} disabled={!filter.state}
+                  title={filter.state ? undefined : "Select a State first"}
+                  onChange={(e) => setField("district", e.target.value)}>
+            <option value="">All Districts</option>
+            {(facets?.districts || []).map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <label>City / Town
+          <select value={filter.city} disabled={!filter.district}
+                  title={filter.district ? undefined : "Select a District first"}
+                  onChange={(e) => setField("city", e.target.value)}>
+            <option value="">All Cities</option>
+            {(facets?.cities || []).map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+      </div>
+      {selectedLabel ? (
+        <button type="button" className="icBtn icBtnGhost icBtnSm icLocClear" onClick={clearFilters}>
+          <RotateCcw size={13} /> Clear filters
+        </button>
+      ) : null}
+
+      {selectedLabel ? (
+        <p className="icLocSelected">
+          <MapPin size={13} /> Selected location: <strong>{selectedLabel}</strong>
+        </p>
+      ) : null}
+
+      {facets?.missions?.length ? (
+        <div className="icLocMissions">
+          <span>Missions found</span>
+          {facets.missions.map((m) => <span key={m.id} className="icLocMissionChip">{m.label}</span>)}
+        </div>
+      ) : null}
+
+      <div className="icDetailGrid">
+        <div className="icPreviewPane">
+          {mapGeometry ? <FootprintMap geometry={mapGeometry} height={300} /> : (
+            <div className="icPreviewEmpty">
+              <MapPin size={34} />
+              <p>No location selected</p>
+              <span>Pick a State, District or City to see matching opportunities</span>
+            </div>
+          )}
+        </div>
+
+        <div className="icFacts">
+          <h4><Satellite size={14} /> Imaging Opportunities</h4>
+          {loading ? (
+            <p className="icMuted"><Loader2 size={13} className="icSpin" /> Searching…</p>
+          ) : error ? (
+            <p className="icError">Could not load imaging opportunities: {error}</p>
+          ) : available ? (
+            <>
+              <div className="icLocAvailable">
+                AVAILABLE — {result.count} real opportunit{result.count === 1 ? "y" : "ies"}
+              </div>
+              <div className="icTableWrap">
+                <table className="icTable icLocTable">
+                  <thead>
+                    <tr>
+                      <th>Satellite</th><th>Mission</th><th>Observation (UTC)</th>
+                      <th>Duration</th><th>District / City</th><th>Status</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {opportunities.map((o) => (
+                      <tr key={`${o.missionId}-${o.imageId}`}>
+                        <td>{o.satellite}</td>
+                        <td>{o.missionLabel}</td>
+                        <td>{o.captureDate} {o.captureTimeUtc}</td>
+                        <td>{o.captureDurationSec != null ? `${num(o.captureDurationSec, 1)} s` : "—"}</td>
+                        <td>{o.city || o.district ? [o.city, o.district].filter(Boolean).join(", ") : "—"}</td>
+                        <td><StatusPill status={o.generationStatus} /></td>
+                        <td>
+                          <button className="icBtn icBtnPrimary icBtnSm"
+                                  onClick={() => setSelected({ imageId: o.imageId, missionId: o.missionId })}>
+                            {o.generationStatus === "Generated" ? "View" : "Generate"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <a className="icBtn icBtnGhost icLocCsv" href={csvUrl} target="_blank" rel="noreferrer">
+                <Download size={14} /> Download results as CSV
+              </a>
+            </>
+          ) : (
+            <div className="icLocUnavailable">
+              <strong>NOT AVAILABLE</strong>
+              <p>
+                {selectedLabel
+                  ? `No opportunities identified for ${selectedLabel}.`
+                  : "No valid imaging opportunity found for the selected location."}
+              </p>
+              {selectedLabel ? (
+                <button type="button" className="icBtn icBtnGhost icBtnSm" onClick={clearFilters}>
+                  <RotateCcw size={13} /> Change location
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {selected ? (
+        <div className="icModal" role="dialog" aria-modal="true">
+          <div className="icModalInner">
+            <ImageDetail
+              imageId={selected.imageId}
+              missionId={selected.missionId}
+              onClose={() => setSelected(null)}
+              onChanged={() => setRefreshKey((k) => k + 1)}
+            />
           </div>
         </div>
       ) : null}

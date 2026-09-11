@@ -43,6 +43,7 @@ from core.access_control import (
 from core.glossary import GLOSSARY
 from core.global_regions import build_global_coverage
 from core.imaging_summary import build_imaging_summary
+from core.time_utils import utc_iso
 from core.image_center import derive_planes
 from core.missions import DEFAULT_MISSION, MISSIONS, get_mission, list_missions
 from core.observation_duration import observation_duration_analysis
@@ -250,7 +251,7 @@ def clean_value(value):
     if pd.isna(value):
         return None
     if hasattr(value, "isoformat"):
-        return value.isoformat()
+        return utc_iso(value)
     if isinstance(value, (int, float, str, bool)):
         return value
     return str(value)
@@ -267,6 +268,27 @@ def records(df, limit=None):
         {str(key): clean_value(value) for key, value in row.items()}
         for row in out.to_dict(orient="records")
     ]
+
+
+def _scrub_config_provenance(rows):
+    """Replace 'GMAT' mentions in a configuration table's own cell text.
+
+    core.config_loader.load_mission_configuration reads the mission
+    spreadsheet's sheets verbatim, so its "Source Type" and "Notes" columns
+    (e.g. "GMAT Configuration", "From SMA 6914.1363 km in GMAT script") name
+    the originating tool directly in the raw cell text -- unlike every other
+    GMAT mention in this codebase, which was a Python string literal editable
+    in place, this one is spreadsheet data passing straight through, so it
+    needs its own scrub here rather than being caught by editing source code
+    elsewhere. Applied once, at the configuration payload's construction, so
+    it covers every consumer of that cached payload (the dashboard API, and
+    the Excel/PDF report export, which reads this same "configuration" key).
+    """
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, str) and "GMAT" in value:
+                row[key] = value.replace("GMAT Configuration", "Mission Configuration").replace("GMAT", "mission")
+    return rows
 
 
 def count_by(df, col, value_name="value", count_name="count"):
@@ -448,9 +470,23 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
 
     tracks = []
     if not state_work.empty:
+        # This path feeds only the brief fallback shown before /api/state
+        # loads (typically ~1-1.5s later, see useDashboard in src/main.jsx),
+        # not a view anyone studies -- so it does not need /api/state's own
+        # full 1500-point-per-satellite fidelity. It was raised to 1500 to
+        # match /api/state and fix the same visible faceting, but for the
+        # 48-satellite mission that made this endpoint's own payload ~6.7 MB
+        # and measurably slower to compute (44,352 dict entries instead of
+        # 4,320) for a view replaced a second or two later. 300 points/
+        # satellite (~20/orbit for this mission's ~15.2 orbits/day) is still
+        # clearly smooth for the brief window it is actually shown, at a
+        # fraction of the cost -- full fidelity belongs to /api/state, which
+        # is what State Explorer and the Constellation Simulator actually
+        # render once it arrives.
+        TRACK_POINTS = 300
         for sat, group in state_work.sort_values("Timestamp").groupby("Satellite Name"):
-            sample = group.iloc[:: max(int(len(group) / 90), 1), :]
-            for row in sample.tail(90).itertuples(index=False):
+            sample = group.iloc[:: max(int(len(group) / TRACK_POINTS), 1), :]
+            for row in sample.tail(TRACK_POINTS).itertuples(index=False):
                 tracks.append(
                     {
                         "satellite": str(getattr(row, "Satellite_Name", sat)) if hasattr(row, "Satellite_Name") else str(sat),
@@ -530,7 +566,7 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
             "aoi": str(mission.get("Area of Interest", "Not configured")),
             "aoiRegion": region,
             "aoiRegionLabel": region_label_for_mission(mission_id),
-            "latestEpoch": latest_time.isoformat() if latest_time is not None else None,
+            "latestEpoch": utc_iso(latest_time),
         },
         "constellation": {
             "configuredSatellites": configured_sats,
@@ -599,12 +635,12 @@ def dashboard_payload(mission_id=DEFAULT_MISSION):
         },
         "configuration": {
             "issues": validate_configuration(config),
-            "mission": records(config["mission_table"]),
-            "constellation": records(config["constellation_table"]),
-            "orbit": records(config["orbit_table"]),
-            "groundStations": records(config["ground_stations"]),
-            "payload": records(config["payload_table"]),
-            "power": records(config["power_table"]),
+            "mission": _scrub_config_provenance(records(config["mission_table"])),
+            "constellation": _scrub_config_provenance(records(config["constellation_table"])),
+            "orbit": _scrub_config_provenance(records(config["orbit_table"])),
+            "groundStations": _scrub_config_provenance(records(config["ground_stations"])),
+            "payload": _scrub_config_provenance(records(config["payload_table"])),
+            "power": _scrub_config_provenance(records(config["power_table"])),
         },
         "tables": {
             "rf": records(rf.sort_values("Duration (s)", ascending=False) if not rf.empty else rf, limit=120),
@@ -832,8 +868,18 @@ def plan_replay():
 
 
 @lru_cache(maxsize=8)
-def state_series_payload(mission_id=DEFAULT_MISSION, max_points=180):
-    """Per-satellite downsampled state time-series for the State Explorer."""
+def state_series_payload(mission_id=DEFAULT_MISSION, max_points=1500):
+    """Per-satellite downsampled state time-series for the State Explorer.
+
+    max_points was 180 -- for a ~15-orbit/day LEO mission that's only ~12
+    points per full orbit, and straight-line segments between that few real
+    fixes render as visible faceted zigzags on the ground-track maps
+    (Constellation Simulator, State Explorer's Ground Tracks panel) instead
+    of a smooth curve, on every mission regardless of inclination. 1500
+    covers this project's missions' full ~24h/900-1700-row state history
+    with little or no downsampling, so the plotted curve is close to the
+    real sampled resolution rather than an aggressively thinned one.
+    """
     state = read_processed("Satellite_State_History.xlsx", mission_id)
     if state.empty:
         return {"satellites": [], "series": {}, "range": {}}
@@ -1509,14 +1555,26 @@ def _warm_caches():
     Doing it here means the wait happens while the server is starting rather
     than while the operator watches the loading screen. Failures are ignored:
     this is only a head start, the request path recomputes if needed.
+
+    Also warms the Image Center's own catalog cache (api_image_center._catalog),
+    which this function did not touch before -- that build alone takes ~8s for
+    the 48-satellite mission locally, measurably longer on a smaller hosted
+    instance, and is not covered by dashboard_payload/state_series_payload
+    above. Left cold, the first visitor to open Image Catalog after a deploy
+    or restart pays that cost synchronously inside their own request, which is
+    long enough to trip a platform reverse-proxy's request timeout (observed
+    as a 502 on Render) even though the app itself is healthy.
     """
     import threading
 
     def run():
+        from api_image_center import _catalog as _ic_catalog
+
         for entry in list_missions():
             try:
                 dashboard_payload(entry["id"])
                 state_series_payload(entry["id"])
+                _ic_catalog(entry["id"])
             except Exception:
                 pass
 
@@ -1531,4 +1589,11 @@ if __name__ == "__main__":
     if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         _warm_caches()
 
-    app.run(host="127.0.0.1", port=5001, debug=True)
+    # threaded=True: without it Flask's dev server handles one request at a
+    # time, so a long generate (which live progress polling now hits every
+    # second, see api_image_center.py's /progress) queues every other
+    # request -- including that poll itself -- behind it, and the dashboard
+    # looks hung for the whole generation instead of showing live progress.
+    # serve.py (Waitress) already ran multi-threaded for the same reason;
+    # this brings the plain `python api.py` dev entrypoint in line with it.
+    app.run(host="127.0.0.1", port=5001, debug=True, threaded=True)

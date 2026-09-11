@@ -121,6 +121,7 @@ SECTIONS = {
     # ---------------------------------------------------- Mission Image Center
     "ic-catalog": _section("Image Catalog", "Mission Image Center"),
     "ic-gallery": _section("Image Gallery", "Mission Image Center"),
+    "ic-location": _section("Global Location Explorer", "Mission Image Center"),
 
     # ------------------------------------------- Duty cycle Phase 1 (K1 -- K5)
     "k1": _section("K1 · Constellation Transit", "Duty cycle · Phase 1",
@@ -129,7 +130,7 @@ SECTIONS = {
                    keys=["duty", "constellation"]),
     "k3": _section("K3 · Store & Downlink", "Duty cycle · Phase 1",
                    keys=["duty", "metrics", "tables", "charts", "constellation"]),
-    "k4": _section("K4 · Brisbane Downlink", "Duty cycle · Phase 1",
+    "k4": _section("K4 · Ground Station Downlink", "Duty cycle · Phase 1",
                    keys=["metrics", "charts"]),
     "k5": _section("K5 · Command Uplink", "Duty cycle · Phase 1",
                    keys=["tables", "metrics", "constellation"]),

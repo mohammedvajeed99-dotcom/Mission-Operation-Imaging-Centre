@@ -121,7 +121,7 @@
     "bitDepth": 12,
     "noiseApplied": true,
     "estimatedSnr": 35.046322970533936,
-    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and GMAT telemetry."
+    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and real orbital telemetry."
   },
   "cloud": {
     "cloudCoverPercent": 2.823014037716184,
@@ -231,7 +231,7 @@
     ],
     "mosaicSceneCount": 4,
     "validDataFraction": 0.937,
-    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from GMAT telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
   },
   "files": {
     "geotiff": "ASC074-P1-S03-O0002-20260703T005139.tif",

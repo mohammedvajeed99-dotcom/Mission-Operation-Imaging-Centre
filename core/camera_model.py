@@ -18,7 +18,7 @@ import pandas as pd
 # moment a spreadsheet provides these keys) but the source-tracking below
 # makes today's all-defaults reality visible rather than assumed silently.
 DEFAULT_CAMERA = {
-    "Camera Name": "ASC074_BrisbaneCam",
+    "Camera Name": "Generic Pushbroom Camera (assumed default)",
     "Sensor Type": "CMOS",
     "Camera Type": "Pushbroom",
     "Spectral Bands": ["Blue", "Green", "Red", "Near Infrared"],

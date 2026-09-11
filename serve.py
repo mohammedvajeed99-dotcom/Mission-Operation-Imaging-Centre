@@ -73,9 +73,10 @@ def main():
 
     import api  # imports the Flask app and its routes
 
-    # Warming computes both missions' payloads up front so the first visitor
-    # does not wait ~10 s. It is also the peak-memory moment, so a small
-    # hosted instance can turn it off and pay the cost on first request.
+    # Warming computes every mission's payload up front (default mission
+    # first, see core.missions.MISSIONS) so the first visitor does not wait
+    # ~10 s. It is also the peak-memory moment, so a small hosted instance
+    # can turn it off and pay the cost on first request.
     if os.environ.get("ASC074_WARM_CACHES", "1") not in ("0", "false", "False"):
         api._warm_caches()
 

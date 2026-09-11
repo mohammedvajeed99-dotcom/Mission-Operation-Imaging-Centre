@@ -23,13 +23,17 @@ from pathlib import Path
 
 import pandas as pd
 from flask import Blueprint, jsonify, request, send_file
+from werkzeug.datastructures import MultiDict
 
 from core.access_control import SECTIONS, unlocked_downloads, unlocked_sections
 from core.camera_model import build_camera_model
 from core.data_pipeline import read_processed_frame
 from core.config_loader import load_mission_configuration
-from core.missions import DEFAULT_MISSION, get_mission
-from core.regions import region_for_mission
+from core.missions import DEFAULT_MISSION, MISSIONS, get_mission
+from core.regions import region_for_mission, region_label_for_mission
+from core.location_dataset import COUNTRY_REGION, city_coordinates, list_cities, list_districts
+from core.nearest_opportunity import find_nearest_opportunity
+from core.time_utils import utc_iso
 from core.image_center import (
     FAILED,
     GENERATED,
@@ -58,10 +62,11 @@ def _mission_id_from_request():
 
 
 # Neither Image Center view touches /api/dashboard, so the whole blueprint is
-# gated at one chokepoint. Either Image Center code opens it: the catalog and
-# the gallery are two views onto the same product set, and the detail modal
-# (shared by both) hits the per-image routes.
-IC_SECTIONS = ("ic-catalog", "ic-gallery")
+# gated at one chokepoint. Any one of the three Image Center codes opens it:
+# catalog, gallery and the global location explorer are three views onto the
+# same product set, and the detail modal (shared by all three) hits the
+# per-image routes.
+IC_SECTIONS = ("ic-catalog", "ic-gallery", "ic-location")
 
 
 @bp.before_request
@@ -128,6 +133,14 @@ def reset_caches():
 # --------------------------------------------------------------------------
 
 
+def _norm(s):
+    """Whitespace/case-normalized comparison key for an exact-match filter
+    -- "Vijayawada", "vijayawada" and " Vijayawada " must all select the
+    same rows. casefold(), not lower(), so this stays correct for non-Latin
+    district/city names too."""
+    return str(s).strip().casefold()
+
+
 def _apply_filters(df, args):
     """Apply every supported search and filter parameter."""
     out = df
@@ -144,6 +157,8 @@ def _apply_filters(df, args):
             | out["satellite"].str.contains(q, case=False, na=False)
             | out["aoiName"].str.contains(q, case=False, na=False)
             | out["australianState"].str.contains(q, case=False, na=False)
+            | out["district"].str.contains(q, case=False, na=False)
+            | out["city"].str.contains(q, case=False, na=False)
             | out["captureDate"].str.contains(q, case=False, na=False)
             # Coordinates as text, so typing e.g. "-24.3" or "116.7" finds
             # matching rows without needing the precise Min/Max range filters
@@ -154,12 +169,24 @@ def _apply_filters(df, args):
         )
         out = out[mask]
 
-    for field, col in (("imageId", "imageId"), ("satellite", "satellite"),
-                       ("state", "australianState"), ("aoi", "aoiName"),
-                       ("date", "captureDate")):
+    for field, col in (("imageId", "imageId"), ("date", "captureDate")):
         if (v := args.get(field, "").strip()):
             note(field, v)
             out = out[out[col].str.contains(v, case=False, na=False)]
+
+    # Dropdown-driven fields: EXACT match (normalized for stray whitespace
+    # and case), not substring. These values always come from a facet-
+    # populated <select>, never typed free text, so a partial match would
+    # risk one district silently pulling in another whose name merely
+    # contains it as a substring -- picking an exact option must never
+    # include a neighbour. casefold() (not lower()) so this is safe for
+    # non-Latin district/city names too.
+    for field, col in (("satellite", "satellite"), ("state", "australianState"),
+                       ("aoi", "aoiName"), ("district", "district"), ("city", "city")):
+        if (v := args.get(field, "").strip()):
+            note(field, v)
+            target = _norm(v)
+            out = out[out[col].notna() & (out[col].astype(str).str.strip().str.casefold() == target)]
 
     for field, col in (("orbit", "orbit"), ("plane", "plane"), ("orbitPass", "orbitPass")):
         if (v := args.get(field, "").strip()):
@@ -261,19 +288,79 @@ def catalog():
     })
 
 
+def _facet_values(df, args, exclude_field, col, dropna=False):
+    """Unique values for one filter dropdown's own options, computed against
+    every OTHER filter already selected in the request -- never against its
+    own current value, or picking e.g. a State would collapse that same
+    State dropdown down to just its own selection instead of staying a full
+    picker. This is what makes District/City actually narrow when a State
+    is chosen (previously every facet list was the mission's full,
+    unfiltered set regardless of what else was picked, which was fine while
+    every field was dense but reads as broken once a sparse field like
+    District sits next to a dense one like State).
+    """
+    sub_args = MultiDict(args)
+    sub_args.pop(exclude_field, None)
+    filtered, _ = _apply_filters(df, sub_args)
+    series = filtered[col].dropna() if dropna else filtered[col]
+    return series.unique().tolist()
+
+
+def _facet_values_by(df, args, ancestor_fields, col, dropna=False):
+    """Unique values for one level of a strict location hierarchy, computed
+    using ONLY its ancestor fields -- never its own current value, and
+    never a descendant's. This is what keeps State -> District -> City a
+    true drill-down instead of a flat faceted search: if picking a
+    District also narrowed the State dropdown (because some OTHER state
+    doesn't share that district name), the user could never change State
+    again without first clearing District back out. Only an ancestor
+    (State, for District's purposes) may narrow a level; a sibling or
+    descendant filter must not.
+    """
+    sub_args = MultiDict()
+    for f in ancestor_fields:
+        v = args.get(f, "")
+        if v:
+            sub_args[f] = v
+    filtered, _ = _apply_filters(df, sub_args)
+    series = filtered[col].dropna() if dropna else filtered[col]
+    return series.unique().tolist()
+
+
 @bp.get("/facets")
 def facets():
-    """Distinct values for populating filter controls."""
-    df = _catalog_live(_mission_id_from_request())
+    """Distinct values for populating filter controls. Satellite/plane/
+    orbit/AOI are flat facets, each narrowed by every other filter
+    currently applied (see _facet_values). State/District/City are a
+    strict hierarchy instead: each level is narrowed only by its ANCESTOR
+    (District by State; City by State+District), never by its own value or
+    by a descendant -- see _facet_values_by for why that distinction
+    matters (a descendant narrowing its ancestor would trap the picker)."""
+    mission_id = _mission_id_from_request()
+    df = _catalog_live(mission_id)
     if df.empty:
         return jsonify({})
+    args = request.args
     return jsonify({
-        "satellites": sorted(df["satellite"].unique().tolist()),
-        "planes": sorted(int(p) for p in df["plane"].unique()),
-        "orbits": sorted(int(o) for o in df["orbit"].unique()),
-        "states": sorted(df["australianState"].unique().tolist()),
-        "aois": sorted(df["aoiName"].unique().tolist()),
-        "dates": sorted(df["captureDate"].unique().tolist()),
+        "satellites": sorted(_facet_values(df, args, "satellite", "satellite")),
+        "planes": sorted(int(p) for p in _facet_values(df, args, "plane", "plane")),
+        "orbits": sorted(int(o) for o in _facet_values(df, args, "orbit", "orbit")),
+        "states": sorted(_facet_values_by(df, args, [], "australianState")),
+        "aois": sorted(_facet_values(df, args, "aoi", "aoiName")),
+        # District/City come from the full authoritative dataset (every
+        # real district/council for this mission's country), NOT from which
+        # rows happen to already have a matching opportunity in this
+        # mission's own catalog -- a reviewer must be able to pick any real
+        # location and see an honest "no opportunity" for one this
+        # constellation hasn't imaged, rather than that location being
+        # invisible in the dropdown entirely. Still respects the same
+        # State-only / State+District-only ancestor scoping as every other
+        # level here.
+        "districts": list_districts(region_for_mission(mission_id), state=args.get("state") or None),
+        "cities": list_cities(region_for_mission(mission_id), state=args.get("state") or None,
+                              district=args.get("district") or None),
+        "country": region_label_for_mission(mission_id),
+        "dates": sorted(_facet_values(df, args, "date", "captureDate")),
         "statuses": [NOT_GENERATED, GENERATED, FAILED],
         "timeRange": {
             "start": df["captureEpochUtc"].min(),
@@ -287,6 +374,246 @@ def facets():
             "notGenerated": int((df["generationStatus"] != GENERATED).sum()),
         },
     })
+
+
+@bp.get("/nearest")
+def nearest_opportunity():
+    """"See Near Opportunities": when the reviewer's selected State/
+    District/City has zero matching rows, find the geographically nearest
+    REAL opportunity instead.
+
+    Every filter except state/district/city/aoi/q stays active (satellite,
+    plane, orbit, status, date range, cloud, quality, lat/lon bounds) --
+    relaxing exactly those location fields is the whole point of this
+    search, nothing else the reviewer asked for is loosened. The selected
+    city's own real coordinates come from core.location_dataset (the same
+    authoritative dataset backing every other location feature -- never a
+    second, hard-coded city list); the candidate pool is this mission's own
+    real catalog (core.nearest_opportunity.find_nearest_opportunity, which
+    also owns the haversine distance + prefer-same-state logic, unit
+    tested in tests/test_nearest_opportunity.py). Never fabricates a
+    result: an empty candidate pool is reported honestly.
+    """
+    mission_id = _mission_id_from_request()
+    df = _catalog_live(mission_id)
+    args = request.args
+
+    state = args.get("state", "").strip()
+    district = args.get("district", "").strip()
+    city = args.get("city", "").strip()
+    if not city:
+        return jsonify({"ok": False, "error": "No city selected to search near."}), 400
+    if df.empty:
+        return jsonify({"ok": True, "available": False})
+
+    coords = city_coordinates(region_for_mission(mission_id), state=state or None,
+                              district=district or None, city=city)
+    if not coords:
+        return jsonify({"ok": False, "error": f"No coordinates on file for {city!r}."}), 404
+
+    sub_args = MultiDict(args)
+    for field in ("state", "district", "city", "aoi", "q"):
+        sub_args.pop(field, None)
+    filtered, _ = _apply_filters(df, sub_args)
+
+    row, distance_km, within_state = find_nearest_opportunity(
+        filtered, coords["lat"], coords["lon"], preferred_state=state or None
+    )
+    if row is None:
+        return jsonify({"ok": True, "available": False, "fromCity": city})
+
+    record = json.loads(pd.DataFrame([row]).to_json(orient="records"))[0]
+    return jsonify({
+        "ok": True,
+        "available": True,
+        "opportunity": record,
+        "distanceKm": distance_km,
+        "fromCity": city,
+        "fromDistrict": district or None,
+        "fromState": state or None,
+        "withinSelectedState": within_state,
+    })
+
+
+# --------------------------------------------------------------------------
+# Cross-mission location pipeline (Country -> State -> District -> City)
+#
+# Everything below loops core.missions.MISSIONS generically and reuses the
+# exact same _catalog_live()/_apply_filters()/_records() every route above
+# already uses -- there is no second, parallel location data structure and
+# no per-mission special-casing. A 5th future mission needs zero changes
+# here: it just appears in the loop.
+# --------------------------------------------------------------------------
+
+
+def _mission_country(mission_id):
+    return region_label_for_mission(mission_id)
+
+
+def _catalogs_for_country(country):
+    """{missionId: catalog df} for every mission in `country`, or every
+    mission if country is empty/unset ("All countries")."""
+    out = {}
+    for mission_id in MISSIONS:
+        if country and _mission_country(mission_id) != country:
+            continue
+        df = _catalog_live(mission_id)
+        if not df.empty:
+            out[mission_id] = df
+    return out
+
+
+def _location_args(args):
+    """A location query's country/mission scoping happens at the mission-
+    loop level in this module (see above); _apply_filters only understands
+    per-mission fields, so strip those two out before handing args to it."""
+    sub = MultiDict(args)
+    sub.pop("country", None)
+    sub.pop("mission", None)
+    return sub
+
+
+@bp.get("/location/facets")
+def location_facets():
+    """Cross-mission facets for the global location picker -- same
+    _apply_filters machinery as /facets above, looped across every mission
+    in the selected country instead of scoped to one.
+
+    Country -> State -> District -> City is a strict hierarchy: each level
+    is narrowed only by its ANCESTOR selections (District by State only,
+    City by State+District only), never by its own value or by a
+    descendant. Narrowing a level by a descendant would trap the picker --
+    e.g. if District also narrowed the State dropdown, a user could never
+    switch to a different State without first clearing District back out,
+    breaking the "change State -> District/City reset" flow the UI
+    depends on. `missions`, by contrast, is a result, not a picker level,
+    so it correctly reflects every filter currently selected.
+
+    District/City themselves come from the full authoritative dataset
+    (core.location_dataset), not from which rows happen to already have a
+    matching opportunity -- every real district/council for the selected
+    country is always selectable, even ones this fleet has never imaged;
+    picking one just correctly returns zero opportunities rather than not
+    existing as an option at all.
+    """
+    args = request.args
+    country = args.get("country", "").strip()
+    state = args.get("state", "").strip() or None
+    district = args.get("district", "").strip() or None
+    catalogs = _catalogs_for_country(country)
+    countries = sorted({_mission_country(m) for m in MISSIONS})
+
+    # Which dataset region(s) this applies to: the one the selected country
+    # maps to, or every region if no country is picked yet ("All Countries").
+    regions = [COUNTRY_REGION[country]] if country in COUNTRY_REGION else list(COUNTRY_REGION.values())
+    districts = sorted({d for r in regions for d in list_districts(r, state=state)})
+    cities = sorted({c for r in regions for c in list_cities(r, state=state, district=district)})
+
+    if not catalogs:
+        return jsonify({"countries": countries, "states": [], "districts": districts,
+                         "cities": cities, "missions": []})
+
+    def merged_by(ancestor_fields, col):
+        values = set()
+        sub_args = MultiDict()
+        for f in ancestor_fields:
+            v = args.get(f, "")
+            if v:
+                sub_args[f] = v
+        for df in catalogs.values():
+            filtered, _ = _apply_filters(df, sub_args)
+            values.update(filtered[col].unique().tolist())
+        return sorted(values)
+
+    matching_missions = []
+    for mission_id, df in catalogs.items():
+        filtered, _ = _apply_filters(df, _location_args(args))
+        if not filtered.empty:
+            matching_missions.append({"id": mission_id, "label": get_mission(mission_id)["label"]})
+
+    return jsonify({
+        "countries": countries,
+        "states": merged_by([], "australianState"),
+        "districts": districts,
+        "cities": cities,
+        "missions": matching_missions,
+    })
+
+
+@bp.get("/location/opportunities")
+def location_opportunities():
+    """The actual cross-mission imaging-opportunity lookup behind the
+    global location picker. Never fabricates a row: an empty match set is
+    reported as available=false with an empty list, not padded."""
+    args = request.args
+    country = args.get("country", "").strip()
+    only_mission = args.get("mission", "").strip()
+    catalogs = _catalogs_for_country(country)
+    if only_mission:
+        catalogs = {m: df for m, df in catalogs.items() if m == only_mission}
+
+    sub_args = _location_args(args)
+    rows = []
+    for mission_id, df in catalogs.items():
+        filtered, _ = _apply_filters(df, sub_args)
+        if filtered.empty:
+            continue
+        mission_label = get_mission(mission_id)["label"]
+        country_label = _mission_country(mission_id)
+        for rec in _records(filtered):
+            rec["missionId"] = mission_id
+            rec["missionLabel"] = mission_label
+            # Prefer the real reverse-geocoded country when present; fall
+            # back to the mission's own established region label (also
+            # real, just coarser) rather than leaving it blank.
+            rec["country"] = rec.get("country") or country_label
+            rows.append(rec)
+
+    rows.sort(key=lambda r: r.get("captureEpochUtc") or "")
+    limit = min(int(args.get("limit", 200)), 1000)
+    return jsonify({
+        "available": len(rows) > 0,
+        "count": len(rows),
+        "opportunities": rows[:limit],
+    })
+
+
+@bp.get("/location/opportunities.csv")
+def location_opportunities_csv():
+    """Same query and columns as /location/opportunities, streamed as a
+    downloadable report."""
+    args = request.args
+    country = args.get("country", "").strip()
+    only_mission = args.get("mission", "").strip()
+    catalogs = _catalogs_for_country(country)
+    if only_mission:
+        catalogs = {m: df for m, df in catalogs.items() if m == only_mission}
+
+    sub_args = _location_args(args)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Mission", "Country", "State", "District", "City",
+        "Latitude", "Longitude", "Observation Start (UTC)",
+        "Duration (sec)", "Satellite", "Imaging Status",
+    ])
+    for mission_id, df in catalogs.items():
+        filtered, _ = _apply_filters(df, sub_args)
+        if filtered.empty:
+            continue
+        mission_label = get_mission(mission_id)["label"]
+        country_label = _mission_country(mission_id)
+        for rec in _records(filtered):
+            writer.writerow([
+                mission_label, rec.get("country") or country_label,
+                rec.get("australianState"), rec.get("district"), rec.get("city"),
+                rec.get("latitude"), rec.get("longitude"), rec.get("captureEpochUtc"),
+                rec.get("captureDurationSec"), rec.get("satellite"), rec.get("generationStatus"),
+            ])
+    return send_file(
+        io.BytesIO(buf.getvalue().encode("utf-8")),
+        mimetype="text/csv", as_attachment=True, download_name="imaging_opportunities.csv",
+    )
 
 
 @bp.get("/image/<image_id>")
@@ -305,8 +632,8 @@ def image_detail(image_id):
     # Which product files this deployment can actually serve, so the download
     # menu offers only what exists instead of failing on click.
     detail["assets"] = _registry(mission_id).assets(image_id)
-    detail["gmatRecord"] = {
-        "source": "GMAT StateReport.txt -> data/processed/Satellite_State_History.xlsx",
+    detail["telemetryRecord"] = {
+        "source": "StateReport.txt -> data/processed/Satellite_State_History.xlsx",
         "satellite": detail["satellite"],
         "epochUtc": detail["captureEpochUtc"],
         "latitude": detail["latitude"],
@@ -314,7 +641,7 @@ def image_detail(image_id):
         "altitudeKm": detail["altitudeKm"],
         "fromInterpolatedFix": detail.get("fromInterpolatedFix", False),
         "note": (
-            "Position is the GMAT sub-satellite fix at this epoch. Where "
+            "Position is the sub-satellite fix at this epoch. Where "
             "fromInterpolatedFix is true the fix is great-circle interpolated "
             "between two reported records, because the report samples every "
             "~94 s (~629 km) which is far coarser than the camera swath."
@@ -331,6 +658,7 @@ def image_detail(image_id):
 @bp.post("/image/<image_id>/generate")
 def generate(image_id):
     """Generate one image on demand. Cached: never regenerates unless asked."""
+    import core.generation_progress as gen_progress
     from core.imagery import ImageryUnavailable
     from core.imaging_summary import _ground_speed_km_s
     from core.products import generate_product
@@ -386,6 +714,7 @@ def generate(image_id):
         max_pixels = 2048
     max_pixels = max(256, min(max_pixels, 2048))
 
+    gen_progress.start(mission_id, image_id, max_pixels)
     try:
         product = generate_product(
             scene,
@@ -395,14 +724,19 @@ def generate(image_id):
             max_cloud=float(body.get("maxCloud", 20.0)),
             add_noise=bool(body.get("addNoise", True)),
             seed=body.get("seed"),
+            progress_cb=gen_progress.progress_callback(mission_id),
         )
     except ImageryUnavailable as exc:
+        gen_progress.finish(mission_id, record=False)
         failure = {**entry, "generationStatus": FAILED, "error": str(exc),
                    "generatedTimestamp": utc_now_iso()}
         registry.save(image_id, failure)
         return jsonify({"ok": False, "error": str(exc), "image": failure}), 502
     except Exception as exc:  # noqa: BLE001 - surface the real reason to the operator
+        gen_progress.finish(mission_id, record=False)
         return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+    else:
+        gen_progress.finish(mission_id, record=True)
 
     # generate_product names files by its own scene id; rename onto the image ID
     # so the registry, the catalog and the download routes all agree.
@@ -434,6 +768,21 @@ def generate(image_id):
     }
     registry.save(image_id, merged)
     return jsonify({"ok": True, "cached": False, "image": merged})
+
+
+@bp.get("/progress")
+def progress():
+    """Live status of whatever generation is in flight for this mission right
+    now, for a UI to poll while a Generate button or batch run is active.
+
+    Not gated behind unlocked_sections like the rest of this blueprint's
+    routes at first glance, but _gate_image_center runs as a before_request
+    for the whole blueprint, so this is already covered the same as every
+    other route here -- reachable only with an Image Center view code.
+    """
+    import core.generation_progress as gen_progress
+
+    return jsonify(gen_progress.snapshot(_mission_id_from_request()))
 
 
 @bp.get("/generated")
@@ -741,7 +1090,7 @@ def geometry(image_id):
         "bbox": entry["bbox"],
         "groundTrack": [
             {"lon": float(r.Longitude), "lat": float(r.Latitude),
-             "t": r.Timestamp.isoformat()}
+             "t": utc_iso(r.Timestamp)}
             for r in window.itertuples(index=False)
             if pd.notna(r.Latitude) and pd.notna(r.Longitude)
         ],

@@ -38,6 +38,14 @@ import pandas as pd
 
 from core.aoi_regions import aoi_name, state_of as australia_state_of
 from core.india_states import state_of as india_state_of
+# core.location_dataset (the authoritative bundled district/council
+# dataset) has replaced core.geocode (live Nominatim reverse-geocoding) as
+# the source here -- same return shape, so every downstream field name
+# (district/city/country/locationDisplay) is unchanged. core.geocode is
+# left in place, not deleted, in case it's ever needed again.
+from core.location_dataset import nearest_district_city as district_city_for
+from core.imaging_summary import _ground_speed_km_s
+from core.time_utils import utc_iso
 from core.footprint import (
     _bearing_deg,
     densify_track,
@@ -221,6 +229,12 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
 
         sat_num = _sat_number(sat)
         plane = planes.get(str(sat), ((sat_num - 1) // max(per_plane, 1)) + 1)
+        # Median ground-track speed for this satellite, from its own real
+        # consecutive state fixes (core.imaging_summary, already used for the
+        # fleet-wide imaging-summary estimate) -- reused here to derive a real
+        # per-opportunity capture duration (along-track distance / speed)
+        # rather than inventing one.
+        ground_speed_km_s = _ground_speed_km_s(grp)
 
         # Orbit pass number: each continuous stretch over the AOI is one pass,
         # numbered sequentially per satellite. This is the operational "pass"
@@ -254,6 +268,7 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
                 state = australia_state_of(row.Latitude, row.Longitude)
             else:
                 state = default_aoi
+            loc = district_city_for(row.Latitude, row.Longitude, region=region)
 
             rows.append({
                 "imageId": make_image_id(mission, plane, sat_num, row.orbit, row.Timestamp),
@@ -264,7 +279,7 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
                 "orbitPass": int(row.passNumber),
                 "captureDate": row.Timestamp.strftime("%Y-%m-%d"),
                 "captureTimeUtc": row.Timestamp.strftime("%H:%M:%S"),
-                "captureEpochUtc": row.Timestamp.isoformat(),
+                "captureEpochUtc": utc_iso(row.Timestamp),
                 "missionElapsedTime": _fmt_met(met_s),
                 "missionElapsedSeconds": float(met_s),
                 "latitude": float(row.Latitude),
@@ -277,6 +292,12 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
                 "footprintAreaKm2": float(swath_km * along_km),
                 "swathWidthKm": swath_km,
                 "gsdM": gsd_m,
+                # Time to traverse this scene's along-track footprint at this
+                # satellite's own real ground speed -- None (not a fabricated
+                # number) when speed couldn't be derived (e.g. too few fixes).
+                "captureDurationSec": (
+                    round(along_km / ground_speed_km_s, 2) if ground_speed_km_s else None
+                ),
                 # Native instrument product: what the camera would actually
                 # produce at full sensor resolution.
                 "estimatedResolution": f"{width_px} x {height_px} px",
@@ -297,6 +318,14 @@ def build_catalog(state_df, camera_model, mission_config=None, constellation_con
                 "aoiName": aoi_name(row.Latitude, row.Longitude, region=region),
                 "australianState": state,
                 "missionAoi": default_aoi,
+                # Reverse-geocoded labels on this same real coordinate --
+                # additive alongside aoiName/australianState above, never a
+                # replacement. None where the geocode cache has no entry
+                # (never a fabricated district/city name); see core.geocode.
+                "district": loc["district"],
+                "city": loc["city"],
+                "country": loc["country"],
+                "locationDisplay": loc["locationDisplay"],
                 "fromInterpolatedFix": bool(getattr(row, "interpolated", False)),
                 # Post-generation fields, null until an image exists.
                 "imageQualityScore": None,

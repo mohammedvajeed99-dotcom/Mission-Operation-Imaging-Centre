@@ -217,7 +217,7 @@ def simulate(
             "Integration time, read noise, full well, and MTF sigma are "
             "representative smallsat values, not mission-configured data. "
             "GSD, swath and ground speed are derived from mission configuration "
-            "and GMAT telemetry. Pixels with no source imagery are reported in "
+            "and real orbital telemetry. Pixels with no source imagery are reported in "
             "noDataPixelPercent and are excluded from every statistic; they are "
             "not filled with invented ground."
         ),

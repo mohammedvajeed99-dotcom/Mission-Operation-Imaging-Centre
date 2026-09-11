@@ -6,7 +6,7 @@ import { feature } from "topojson-client";
 import worldTopo from "world-atlas/land-110m.json";
 import logoUrl from "../logo.jpeg";
 /* Mission Image Center (v1.1) — additive module, no existing view changed. */
-import { ImageCatalogView, ImageGalleryView } from "./imageCenter.jsx";
+import { GlobalLocationExplorer, ImageCatalogView, ImageGalleryView } from "./imageCenter.jsx";
 import {
   ConstellationSummaryView,
   RevisitAnalyticsView,
@@ -45,6 +45,7 @@ import {
   LayoutDashboard,
   Lock,
   LockOpen,
+  MapPinned,
   Orbit,
   Pause,
   Play,
@@ -142,6 +143,12 @@ function fmtAoiBox(box) {
   return `${deg(box.lonMin, "E", "W")}–${deg(box.lonMax, "E", "W")} · ${deg(box.latMin, "N", "S")}–${deg(box.latMax, "N", "S")}`;
 }
 
+// Every timestamp here is a mission UTC value (GMAT UTCGregorian-derived,
+// see core.time_utils on the backend) -- `timeZone: "UTC"` is required, not
+// cosmetic: Intl.DateTimeFormat defaults to the *viewer's own* timezone
+// when none is given, so without this a mission analyst outside UTC+0
+// would silently see a shifted clock reading for the exact same instant
+// a UTC+0 viewer sees, with nothing in the label to say so.
 function dateLabel(value) {
   if (!value) return "NA";
   const date = new Date(value);
@@ -151,15 +158,32 @@ function dateLabel(value) {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+    timeZone: "UTC",
+  }).format(date) + " UTC";
 }
 function timeLabel(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(date) + " UTC";
 }
 const hueFor = (index) => `hsl(${(index * 47) % 360} 82% 62%)`;
+
+// Compact chart-label form of a real satellite name (from mission telemetry
+// -- see core.missions/state_parser). Two real conventions exist across
+// this app's actual missions: "ASC_074_16" (underscore + zero-padded
+// number, asc074_6x8/asc080_1x3/asc080_6x4) and "ASC_074A" (a bare letter
+// suffix with no separating underscore, asc074_3x1's real GMAT-assigned
+// names) -- a regex tuned only for the first form left the second
+// undecorated in every chart that uses this (full "ASC_074A" instead of a
+// short "A"), not wrong, just inconsistent with every mission that happens
+// to use the other convention. `prefix` matches each call site's existing
+// replacement (e.g. "S" for "S16"-style labels).
+function shortSat(name, prefix = "") {
+  const byDigitSuffix = name.replace(/^.*_(?=\d+$)/, prefix);
+  if (byDigitSuffix !== name) return byDigitSuffix;
+  return name.replace(/^.*\d(?=[A-Za-z]+$)/, prefix);
+}
 
 /* -------------------- world map (equirectangular) --------------------- */
 
@@ -201,10 +225,35 @@ const LAND_PATH = (() => {
 
 const DEFAULT_AOI_BOX = { lonMin: 110, lonMax: 160, latMin: -40, latMax: -10 };
 
-/* Shared map base: ocean, graticule, land silhouette, AOI box */
-function MapBase({ showAoi = true, aoiBox = DEFAULT_AOI_BOX }) {
+/* Builds an SVG path `d` from one or more closed lon/lat rings (the same
+   real, coastline-derived land-boundary polygons -- core.australia_coverage
+   .MAINLAND_AUSTRALIA/TASMANIA/MAINLAND_INDIA -- already sent to the
+   frontend as data.coverage.outline/tasmania and already used to draw the
+   Coverage Map's own AOI outline there). Used in place of the old
+   rectangular AOI box: a lon/lat bounding rectangle necessarily includes
+   whatever other territory sits in its corners (e.g. India's box, spanning
+   the full 68-97.5E at its northernmost latitude, swept in a wide band of
+   Tibet/western China that is nowhere near India's real border), which a
+   real outline does not. */
+function outlinePathD(rings = []) {
+  let d = "";
+  rings.forEach((ring) => {
+    if (!ring || !ring.length) return;
+    ring.forEach((pt, i) => {
+      const lon = pt.lon ?? pt[0];
+      const lat = pt.lat ?? pt[1];
+      d += `${i === 0 ? "M" : "L"}${projX(lon).toFixed(1)} ${projY(lat).toFixed(1)}`;
+    });
+    d += "Z";
+  });
+  return d;
+}
+
+/* Shared map base: ocean, graticule, land silhouette, AOI outline */
+function MapBase({ showAoi = true, aoiBox = DEFAULT_AOI_BOX, outline = [], secondary = [] }) {
   const lonLines = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150];
   const latLines = [-60, -30, 0, 30, 60];
+  const hasOutline = outline.length > 0;
   return (
     <g>
       <rect width={MAP_W} height={MAP_H} fill="#081426" />
@@ -223,13 +272,17 @@ function MapBase({ showAoi = true, aoiBox = DEFAULT_AOI_BOX }) {
       ))}
       <path d={LAND_PATH} className="landMass" />
       {showAoi ? (
-        <rect
-          x={projX(aoiBox.lonMin)}
-          y={projY(aoiBox.latMax)}
-          width={projX(aoiBox.lonMax) - projX(aoiBox.lonMin)}
-          height={projY(aoiBox.latMin) - projY(aoiBox.latMax)}
-          className="aoiRect"
-        />
+        hasOutline ? (
+          <path d={outlinePathD([outline, secondary])} className="aoiRect" fillRule="evenodd" />
+        ) : (
+          <rect
+            x={projX(aoiBox.lonMin)}
+            y={projY(aoiBox.latMax)}
+            width={projX(aoiBox.lonMax) - projX(aoiBox.lonMin)}
+            height={projY(aoiBox.latMin) - projY(aoiBox.latMax)}
+            className="aoiRect"
+          />
+        )
       ) : null}
     </g>
   );
@@ -255,11 +308,15 @@ function fmtEpoch(ms) {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "—";
   const p = (n) => String(n).padStart(2, "0");
-  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
-  return `${p(d.getDate())} ${mon} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  // UTC getters, not local (getDate/getHours/...) -- every epoch played
+  // back here is a mission UTC timestamp (see core.time_utils), and the
+  // local getters silently substitute the viewer's own timezone for it
+  // with no indication anything shifted.
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()];
+  return `${p(d.getUTCDate())} ${mon} ${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
 }
 
-function ConstellationSim({ series = {}, satellites = [], range, height = 520, defaultWindowMs = 60 * 60000, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia" }) {
+function ConstellationSim({ series = {}, satellites = [], range, height = 520, defaultWindowMs = 60 * 60000, aoiBox = DEFAULT_AOI_BOX, aoiLabel = "Australia", outline = [], secondary = [] }) {
   const sats = React.useMemo(
     () =>
       satellites
@@ -391,7 +448,7 @@ function ConstellationSim({ series = {}, satellites = [], range, height = 520, d
               <stop offset="100%" stopColor="rgba(6,16,32,.9)" />
             </radialGradient>
           </defs>
-          <MapBase aoiBox={aoiBox} />
+          <MapBase aoiBox={aoiBox} outline={outline} secondary={secondary} />
           {sats.map((o) => (
             <path key={o.name} d={trail(o.pts)} fill="none" stroke={o.color} strokeWidth="1.1" strokeOpacity="0.85" strokeLinejoin="round" />
           ))}
@@ -403,7 +460,7 @@ function ConstellationSim({ series = {}, satellites = [], range, height = 520, d
               <g key={`h${o.name}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`}>
                 <circle r="4.5" fill={o.color} opacity="0.28" />
                 <circle r="2.1" fill="#fff" stroke={o.color} strokeWidth="1.1" />
-                {inAoi ? <text x="6" y="3" className="satTag" fill={o.color}>{o.name.replace(/^.*_(?=\d+$)/, "")}</text> : null}
+                {inAoi ? <text x="6" y="3" className="satTag" fill={o.color}>{shortSat(o.name)}</text> : null}
                 <title>{`${o.name} · ${number(o.head.lat, 2)}°, ${number(o.head.lon, 2)}°`}</title>
               </g>
             );
@@ -452,6 +509,84 @@ function useCountUp(target, duration = 950) {
 function Counter({ value, format }) {
   const animated = useCountUp(Number(value));
   return <span className="mono">{format ? format(animated) : number(animated)}</span>;
+}
+
+/* Circular gauge sweeping to `percent` (0-100) in step with the KPI card's
+   own count-up (same hook, same easing) so the ring and the big number
+   finish together instead of the ring looking like an unrelated decoration.
+   Renders inside the KPI's own accent-coloured icon slot, replacing the
+   plain flat swatch with an actual progress read -- the kind of at-a-glance
+   gauge a finished analytics dashboard has and a first-pass one usually
+   doesn't. */
+function RadialProgress({ percent, size = 34, strokeWidth = 3, children }) {
+  const clamped = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
+  const animated = useCountUp(clamped, 950);
+  const r = (size - strokeWidth) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - Math.max(0, Math.min(animated, 100)) / 100);
+  return (
+    <span className="kpiRing" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} className="kpiRingTrack" strokeWidth={strokeWidth} fill="none" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} className="kpiRingFill" strokeWidth={strokeWidth} fill="none"
+          strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </svg>
+      <span className="kpiRingIcon">{children}</span>
+    </span>
+  );
+}
+
+/* Small per-satellite bar sparkline for a KPI card. Deliberately bars, not
+   a connected line: a line reads as a trend over time, but every caller of
+   this passes one real value per satellite (rf/optical/eclipse counts,
+   duty %, altitude) -- a discrete breakdown across the fleet, not a time
+   series. Bars say "one bar per craft" at a glance instead of implying an
+   x-axis that isn't there. Only ever fed real numbers already present in
+   the fetched dashboard payload (see each KpiCard call site) -- never
+   synthesized, matching this app's own no-fabricated-data rule for every
+   other chart. Renders nothing rather than a misleading flat line when
+   there is under 2 real points to compare. */
+function Sparkline({ values, labels, accent = "currentColor", width = 72, height = 26 }) {
+  const clean = (values || []).map((v) => (Number.isFinite(v) ? v : null));
+  const real = clean.filter((v) => v !== null);
+  if (real.length < 2) return null;
+  const max = Math.max(...real, 0);
+  const min = Math.min(...real, 0);
+  const span = max - min || 1;
+  const n = clean.length;
+  const barW = width / n;
+  const gap = Math.min(2, barW * 0.25);
+  return (
+    <svg
+      className="kpiSpark"
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {clean.map((v, i) => {
+        if (v === null) return null;
+        const h = Math.max(((v - min) / span) * (height - 2), v === 0 ? 0 : 2);
+        const x = i * barW + gap / 2;
+        const w = Math.max(barW - gap, 1);
+        return (
+          <rect
+            key={labels?.[i] ?? i}
+            x={x} y={height - h} width={w} height={h}
+            rx={Math.min(1.5, w / 2)}
+            fill={accent}
+            opacity={0.55 + 0.45 * ((v - min) / span || 0)}
+          >
+            {labels?.[i] ? <title>{`${labels[i]}: ${number(v, 2)}`}</title> : null}
+          </rect>
+        );
+      })}
+    </svg>
+  );
 }
 
 function useMissions() {
@@ -523,7 +658,7 @@ function useDashboard(missionId) {
     setError("");
     try {
       const response = await authFetch(`${API_BASE}/api/refresh?mission=${missionId}`, { method: "POST" });
-      if (response.status === 403) throw new Error("Refreshing GMAT data requires the Data & Config access code");
+      if (response.status === 403) throw new Error("Refreshing mission data requires the Data & Config access code");
       if (!response.ok) throw new Error(`Refresh failed with ${response.status}`);
       await load();
     } catch (err) {
@@ -538,7 +673,7 @@ function useDashboard(missionId) {
   }, [load]);
 
   // `retry` re-runs the same load, for the offline error screen. `refresh`
-  // is different: it re-runs the GMAT pipeline on the server first.
+  // is different: it re-runs the processing pipeline on the server first.
   return { data, state, loading, error, refreshing, refresh, retry: load };
 }
 
@@ -861,7 +996,7 @@ const K_DEFS = [
   { id: "k1", k: "K1", name: "Constellation Transit", subsystem: "Orbit", phase: 1 },
   { id: "k2", k: "K2", name: "Sensor Power Gating", subsystem: "Power", phase: 1 },
   { id: "k3", k: "K3", name: "Store & Downlink", subsystem: "Data", phase: 1 },
-  { id: "k4", k: "K4", name: "Brisbane Downlink", subsystem: "GSN", phase: 1 },
+  { id: "k4", k: "K4", name: "Ground Station Downlink", subsystem: "GSN", phase: 1 },
   { id: "k5", k: "K5", name: "Command Uplink", subsystem: "Upload", phase: 1 },
   { id: "k6", k: "K6", name: "AOI Active Coverage", subsystem: "Orbit", phase: 2 },
   { id: "k7", k: "K7", name: "Power Duty Budget", subsystem: "Power", phase: 2 },
@@ -958,6 +1093,7 @@ function Sidebar({ active, setActive, onHome }) {
   const imageCenter = [
     ["ic-catalog", Camera, "Image Catalog"],
     ["ic-gallery", ImageIcon, "Image Gallery"],
+    ["ic-location", MapPinned, "Global Location Explorer"],
   ];
   const analytics = [
     ["summary", LayoutDashboard, "Constellation Summary"],
@@ -1045,7 +1181,7 @@ function Sidebar({ active, setActive, onHome }) {
       </button>
       <div className="brand">
         <img className="brandLogo" src={logoUrl} alt="ANSUMI SPACE" />
-        <span className="brandSub">Ansumi Orbital Hub · ASC-074</span>
+        <span className="brandSub">Ansumi Orbital Hub</span>
       </div>
 
       <FullAccessBox />
@@ -1081,19 +1217,151 @@ function Sidebar({ active, setActive, onHome }) {
           {phase2.map(KItem)}
         </div>
       </nav>
-
-      <div className="sidebarStatus">
-        <ShieldCheck size={18} />
-        <div>
-          <strong>GMAT ingest</strong>
-          <span>Processed data online</span>
-        </div>
-      </div>
     </aside>
   );
 }
 
-function Header({ data, refresh, refreshing, missions, missionId, setMissionId }) {
+/* "Supreme" here means the session's token grants every coded section AND
+   every download at once -- exactly what the master/developer code issues
+   (core.access_control.access_unlock, section="*"). A token built up one
+   section-download-code at a time never satisfies this, by design: the
+   full, all-sections report is a reviewer/developer capability, not
+   something a partially-unlocked normal viewer can reach a step at a time. */
+function useIsSupremeAccess() {
+  const { sections, downloads } = useAccess();
+  return React.useMemo(
+    () => sections.length > 0 && downloads.length > 0
+      && sections.every((s) => s.unlocked) && downloads.every((d) => d.unlocked),
+    [sections, downloads]
+  );
+}
+
+/* Top-of-dashboard entry point for the consolidated multi-mission-report
+   PDF (see generateFullMissionReportPdf / REPORT_CHAPTER_DEFS above): every
+   dashboard section except the Mission Image Center (Catalog/Gallery/on-
+   demand generation are explicitly excluded -- those are per-image
+   artefacts, not dashboard pages, and are already downloadable individually
+   from the Image Center itself). Restricted to Supreme Access, with a flat
+   refusal rather than a code prompt -- see useIsSupremeAccess above for why
+   a normal, section-by-section unlock can never satisfy this. */
+function FullReportLauncher({ data, glossaryMap, quality, missions, missionId }) {
+  const { authFetch } = useAccess();
+  const isSupreme = useIsSupremeAccess();
+  const [open, setOpen] = React.useState(false);
+  const [picking, setPicking] = React.useState(false);
+  const [picked, setPicked] = React.useState(() => new Set(REPORT_CHAPTER_DEFS.map((d) => d.id)));
+  const [generating, setGenerating] = React.useState(false);
+
+  const closeAll = () => { setOpen(false); setPicking(false); };
+
+  const runReport = async (selectedIds) => {
+    setGenerating(true);
+    try {
+      await generateFullMissionReportPdf({
+        data, glossaryMap, quality, apiBase: API_BASE, authFetch,
+        allMissionIds: (missions || []).map((m) => m.id),
+        selectedIds,
+      });
+    } finally {
+      setGenerating(false);
+      closeAll();
+    }
+  };
+
+  const grouped = React.useMemo(() => {
+    const g = new Map();
+    REPORT_CHAPTER_DEFS.forEach((d) => {
+      if (!g.has(d.group)) g.set(d.group, []);
+      g.get(d.group).push(d);
+    });
+    return [...g.entries()];
+  }, []);
+
+  const togglePicked = (id) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  return (
+    <>
+      <button className="iconButton" onClick={() => setOpen(true)} title="Download the full mission report (every dashboard section, this mission)">
+        <Download size={18} />
+      </button>
+      {open ? (
+        <div className="missionGateOverlay" onClick={closeAll}>
+          <div
+            className={`missionGatePanel reportGatePanel${picking ? " reportGatePanelWide" : ""}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {!isSupreme ? (
+              <>
+                <ShieldCheck size={28} color="#fb5c73" />
+                <h3>Operation restricted</h3>
+                <p className="reportRestrictedNote">
+                  Downloading the full mission report needs Supreme Access — unlock every
+                  section with the developer/reviewer code first. A normal, section-by-
+                  section unlock does not grant this.
+                </p>
+                <div className="missionGateActions">
+                  <button className="btn ghost" onClick={closeAll}>Close</button>
+                </div>
+              </>
+            ) : !picking ? (
+              <>
+                <ShieldCheck size={26} />
+                <h3>Download Full Report — {data?.mission?.name || "Mission"}</h3>
+                <p className="reportRestrictedNote">
+                  Every dashboard section for this mission — Mission Report and Duty
+                  Cycle K1–K10 — as one PDF. The Mission Image Center (Catalog, Gallery,
+                  on-demand image generation) is not included; those are downloaded
+                  individually from there.
+                </p>
+                <div className="missionGateActions">
+                  <button className="btn primary" disabled={generating} onClick={() => runReport(null)}>
+                    <Download size={14} /> {generating ? "Generating…" : "Download all sections"}
+                  </button>
+                  <button className="btn ghost" disabled={generating} onClick={() => setPicking(true)}>
+                    Select sections…
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>Select sections</h3>
+                <div className="reportPickerToolbar">
+                  <button className="btn ghost" onClick={() => setPicked(new Set(REPORT_CHAPTER_DEFS.map((d) => d.id)))}>Select all</button>
+                  <button className="btn ghost" onClick={() => setPicked(new Set())}>Clear</button>
+                </div>
+                <div className="reportPickerList">
+                  {grouped.map(([group, defs]) => (
+                    <div key={group} className="reportPickerGroup">
+                      <p className="reportPickerGroupLabel">{group}</p>
+                      {defs.map((d) => (
+                        <label key={d.id} className="reportPickerItem">
+                          <input type="checkbox" checked={picked.has(d.id)} onChange={() => togglePicked(d.id)} />
+                          {d.label}
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div className="missionGateActions">
+                  <button className="btn ghost" disabled={generating} onClick={() => setPicking(false)}>Back</button>
+                  <button className="btn primary" disabled={generating || picked.size === 0} onClick={() => runReport(picked)}>
+                    <Download size={14} /> {generating ? "Generating…" : `Download ${picked.size} selected`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function Header({ data, refresh, refreshing, missions, missionId, setMissionId, glossaryMap, quality }) {
   /* Switching to a mission other than the default one is gated the same way
      opening a section is: its own code. Picking a locked mission in the
      dropdown does not switch -- it reverts the select and opens a small
@@ -1167,9 +1435,10 @@ function Header({ data, refresh, refreshing, missions, missionId, setMissionId }
           <span>Latest epoch</span>
           <strong className="mono">{dateLabel(data?.mission?.latestEpoch)}</strong>
         </div>
-        <button className="iconButton" onClick={refresh} disabled={refreshing} title="Refresh GMAT data">
+        <button className="iconButton" onClick={refresh} disabled={refreshing} title="Refresh mission data">
           <RefreshCw size={18} className={refreshing ? "spin" : ""} />
         </button>
+        <FullReportLauncher data={data} glossaryMap={glossaryMap} quality={quality} missions={missions} missionId={missionId} />
       </div>
 
       {pendingMission ? (
@@ -1252,7 +1521,7 @@ function Ticker({ data }) {
 
 /* ---------------------------- primitives ------------------------------ */
 
-function KpiCard({ icon: Icon, label, value, format, detail, accent = COLORS.blue, index = 0, infoKey = null }) {
+function KpiCard({ icon: Icon, label, value, format, detail, accent = COLORS.blue, index = 0, infoKey = null, trend = null, trendLabels = null }) {
   const isNumeric = typeof value === "number" && Number.isFinite(value);
   /* A metric this mission's own source data genuinely doesn't have (e.g.
      asc074_3x1's Satellite_State_History.xlsx has no ECC/RMAG columns,
@@ -1260,19 +1529,62 @@ function KpiCard({ icon: Icon, label, value, format, detail, accent = COLORS.blu
      say so plainly rather than rendering blank or, worse, letting a caller
      coerce it to 0 and print a fake "measured" value. */
   const isMissing = value === null || value === undefined;
+
+  // Detected from the formatter's own output rather than a prop every KPI
+  // call site would need to set: every percent-valued KPI in this app
+  // already formats as `(v) => \`${number(v, N)}%\`` (dozens of call
+  // sites, no two the same closure), so probing what format(0) renders
+  // catches all of them uniformly instead of relying on each one opting in.
+  const isPercent = React.useMemo(() => {
+    if (!format) return false;
+    try {
+      const sample = format(0);
+      return typeof sample === "string" && sample.trim().endsWith("%");
+    } catch {
+      return false;
+    }
+  }, [format]);
+
+  // The small ⓘ icon is the click target InfoPopover actually owns (its
+  // open/close state lives inside that component, not here) -- clicking
+  // anywhere else on the card just forwards a synthetic click to that same
+  // button rather than duplicating its state, so there is exactly one
+  // source of truth for whether the popover is open. The button's own
+  // handler already stops propagation, so this never double-toggles.
+  const infoBtnRef = React.useRef(null);
+  const cardRef = React.useRef(null);
+  const openInfo = infoKey ? () => infoBtnRef.current?.click() : undefined;
+
   return (
-    <section className="kpi reveal" style={{ "--accent": accent, "--i": index }}>
+    <section
+      ref={cardRef}
+      className={`kpi reveal${infoKey ? " kpiHasInfo" : ""}`}
+      style={{ "--accent": accent, "--i": index }}
+      onClick={openInfo}
+      role={infoKey ? "button" : undefined}
+      tabIndex={infoKey ? 0 : undefined}
+      onKeyDown={infoKey ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInfo(); } } : undefined}
+    >
       <div className="kpiTop">
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           {label}
-          {infoKey ? <InfoPopover infoKey={infoKey} /> : null}
+          {infoKey ? <InfoPopover infoKey={infoKey} triggerRef={infoBtnRef} containerRef={cardRef} /> : null}
         </span>
-        <span className="kpiIcon">
-          <Icon size={17} />
-        </span>
+        {isPercent && isNumeric ? (
+          <RadialProgress percent={value}>
+            <Icon size={14} />
+          </RadialProgress>
+        ) : (
+          <span className="kpiIcon">
+            <Icon size={17} />
+          </span>
+        )}
       </div>
       <strong>{isNumeric ? <Counter value={value} format={format} /> : isMissing ? "NA" : value}</strong>
       <p>{isMissing ? "Not in this mission's source data" : detail}</p>
+      {trend ? (
+        <Sparkline values={trend} labels={trendLabels} accent={`var(--accent, ${accent})`} />
+      ) : null}
     </section>
   );
 }
@@ -1342,7 +1654,7 @@ function KHero({ def, requirement, index = 0 }) {
 
 /* ------------------------------- maps --------------------------------- */
 
-function WorldOrbitMap({ positions = [], tracks = [], maxTracks = 48 }) {
+function WorldOrbitMap({ positions = [], tracks = [], maxTracks = 48, aoiBox, outline, secondary }) {
   const project = (lat, lon) => ({ x: projX(lon), y: projY(lat) });
   const grouped = React.useMemo(() => {
     const map = new Map();
@@ -1363,7 +1675,7 @@ function WorldOrbitMap({ positions = [], tracks = [], maxTracks = 48 }) {
             <stop offset="100%" stopColor="rgba(6,16,32,.9)" />
           </radialGradient>
         </defs>
-        <MapBase />
+        <MapBase aoiBox={aoiBox} outline={outline} secondary={secondary} />
         {grouped.map(([sat, points], gi) => {
           // Same antimeridian fix as the land outline and the animated
           // simulator's trail: a track crossing +-180 deg longitude jumps
@@ -1520,7 +1832,7 @@ function NoEclipseNote({ rows }) {
 
   return (
     <p className="panelFootnote">
-      <strong>{noEclipse.length} of {rows.length} satellites</strong> show no eclipse bar above ({noEclipse.map((r) => r.satellite.replace(/^.*_(?=\d+$)/, "S")).join(", ")}).
+      <strong>{noEclipse.length} of {rows.length} satellites</strong> show no eclipse bar above ({noEclipse.map((r) => shortSat(r.satellite, "S")).join(", ")}).
       {byPlane.size ? (
         <> That is not missing data: {[...byPlane.entries()].sort((a, b) => a[0] - b[0]).map(([plane, sats], i, arr) => (
           <span key={plane}>{i > 0 ? (i === arr.length - 1 ? " and " : ", ") : ""}<strong>Plane {plane}</strong> ({sats.length} satellite{sats.length === 1 ? "" : "s"})</span>
@@ -1671,7 +1983,16 @@ function DataTable({ rows = [], columns }) {
         <thead>
           <tr>
             {columns.map((col) => (
-              <th key={col.key}>{col.label}</th>
+              <th key={col.key}>
+                {col.infoKey ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    {col.label}
+                    <InfoPopover infoKey={col.infoKey} />
+                  </span>
+                ) : (
+                  col.label
+                )}
+              </th>
             ))}
           </tr>
         </thead>
@@ -1752,7 +2073,37 @@ function PdfButton({ mission, title, subtitle, columns, rows, fileName, label = 
 
 /* ------------------------ consolidated mission report ------------------------ */
 
-async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBase, allMissionIds, authFetch }) {
+/* Static chapter metadata (id, label, group), independent of any fetched
+   mission data -- the section-picker UI renders this list directly, so it
+   does not need a live data object just to show checkboxes. Every id here
+   must have a matching entry in the `chapters` array generateFullMissionReportPdf
+   builds, or a selection including it silently produces nothing for that id. */
+const REPORT_CHAPTER_DEFS = [
+  { id: "exec-summary", label: "1. Executive Summary", group: "Mission Report" },
+  { id: "mission-config", label: "2. Mission Configuration", group: "Mission Report" },
+  { id: "coverage", label: "3. Coverage Analysis", group: "Mission Report" },
+  { id: "gap-analysis", label: "4. Coverage Gap Analysis", group: "Mission Report" },
+  { id: "revisit", label: "5. Revisit Analysis", group: "Mission Report" },
+  { id: "rf-contact", label: "6. RF Contact Analysis", group: "Mission Report" },
+  { id: "ground-stations", label: "7. Ground Station Analysis", group: "Mission Report" },
+  { id: "eclipse", label: "8. Eclipse Analysis", group: "Mission Report" },
+  { id: "observation", label: "9. Observation Analysis", group: "Mission Report" },
+  { id: "sat-contribution", label: "10. Satellite Contribution", group: "Mission Report" },
+  { id: "comparison", label: "11. Mission Comparison", group: "Mission Report" },
+  { id: "sim-details", label: "12. Simulation Details", group: "Mission Report" },
+  { id: "glossary-def", label: "13. Parameter Definitions & Methodology", group: "Mission Report" },
+  { id: "glossary-source", label: "14. Data Sources", group: "Mission Report" },
+  { id: "data-quality", label: "15. Data Quality & Validation", group: "Mission Report" },
+  { id: "engineering-obs", label: "16. Engineering Observations", group: "Mission Report" },
+  { id: "conclusions", label: "17. Conclusions", group: "Mission Report" },
+  ...K_DEFS.map((d, i) => ({
+    id: d.id,
+    label: `${18 + i}. Duty Cycle — ${d.k} ${d.name}`,
+    group: "Duty Cycle (K1–K10)",
+  })),
+];
+
+async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBase, allMissionIds, authFetch, selectedIds = null }) {
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const mission = data.mission || {};
@@ -1764,6 +2115,7 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
   const gap = a.gapAnalysis || {};
   const revisit = a.revisit || {};
   const sim = a.simulationDetails || {};
+  const duty = data.duty || {};
   const verified = new Set(sim.verifiedFields || []);
   const glossaryTerms = Object.values(glossaryMap || {});
 
@@ -1820,6 +2172,191 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
     y = doc.lastAutoTable.finalY + 24;
   }
 
+  // Each chapter is self-contained (header() always starts a fresh page), so
+  // "download selected sections" is just running a subset of this list --
+  // nothing here depends on a chapter that ran before it, except the shared
+  // `y` cursor header() itself resets on every call.
+  const chapters = {
+    "exec-summary": () => {
+      header("1. Executive Summary", `${mission.name} — key mission metrics, from this mission's own processed mission data`);
+      kvTable([
+        ["Mission", mission.name], ["Configuration", `${c.planes} × ${c.satellitesPerPlane}`],
+        ["Total Satellites", c.configuredSatellites], ["Altitude (km)", c.altitudeKm], ["Inclination (deg)", c.inclinationDeg],
+        ["Area of Interest", mission.aoi], [`${aoiLabel} Coverage (%)`, number(data.coverage?.percent, 2)],
+        ["Mean Revisit (min)", number(summary.meanRevisitMin, 1)], ["Largest Coverage Gap (min)", number(gap.largestGapMin, 1)],
+        ["RF Contact Events", m.rfEvents], ["Optical Contact Events", m.opticalEvents], ["Eclipse Events", m.eclipseEvents],
+      ]);
+    },
+    "mission-config": () => {
+      header("2. Mission Configuration", "Source: this mission's own Mission_Configuration.xlsx");
+      kvTable([
+        ...(data.configuration?.mission || []).map((r) => [r.Parameter, r.Value]),
+        ...(data.configuration?.constellation || []).map((r) => [r.Parameter, r.Value]),
+        ...(data.configuration?.orbit || []).map((r) => [r.Parameter, r.Value]),
+      ]);
+    },
+    "coverage": () => {
+      header("3. Coverage Analysis", "Source: State Report (ground track) + camera swath model");
+      kvTable([
+        [`${aoiLabel} Coverage (%)`, number(data.coverage?.percent, 2)],
+        ["Covered Cells", data.coverage?.coveredCells], ["Total Cells", data.coverage?.totalCells],
+      ]);
+    },
+    "gap-analysis": () => {
+      header("4. Coverage Gap Analysis", "Derived from the same real per-cell pass data as Revisit Analysis");
+      kvTable([
+        ["Largest Gap (min)", number(gap.largestGapMin, 1)], ["Mean Gap (min)", number(gap.meanGapMin, 1)],
+        ["Median Gap (min)", number(gap.medianGapMin, 1)], ["Max Gap (min)", number(gap.maxGapMin, 1)],
+        ["95th Percentile Gap (min)", number(gap.p95GapMin, 1)],
+        ["% Grid Cells Satisfying Requirement", number(gap.pctSatisfyingRequirement, 1)],
+        ["Data-bearing Grid Cells", `${gap.dataBearingCells ?? 0} of ${gap.totalCells ?? 0}`],
+      ]);
+    },
+    "revisit": () => {
+      header("5. Revisit Analysis", "Source: State Report, densified ground track");
+      kvTable([
+        ["Mean Revisit (min)", number(revisit.mean_revisit, 1)], ["Minimum Revisit (min)", number(revisit.min_revisit, 1)],
+        ["Maximum Revisit (min)", number(revisit.max_revisit, 1)], ["Median Revisit (min)", number(revisit.median_revisit, 1)],
+        ["95th Percentile Revisit (min)", number(revisit.p95_revisit, 1)],
+      ]);
+    },
+    "rf-contact": () => {
+      header("6. RF Contact Analysis", "Source: ground-contact log (RF)");
+      tableRows(
+        [{ key: "Satellite Name", label: "Satellite" }, { key: "Ground Station", label: "Ground Station" }, { key: "Start UTC", label: "Start UTC" }, { key: "Duration (s)", label: "Duration (s)" }],
+        data.tables?.rf
+      );
+    },
+    "ground-stations": () => {
+      header("7. Ground Station Analysis", "The mission's real ground segments — RF (5° mask) and Optical (20° mask)");
+      tableRows(
+        [{ key: "stationName", label: "Station" }, { key: "linkType", label: "Link" }, { key: "minElevationDeg", label: "Min Elev (deg)" }, { key: "passCount", label: "Passes" }, { key: "totalDurationSec", label: "Total (s)" }, { key: "longestGapMin", label: "Longest Gap (min)" }],
+        a.groundStations
+      );
+    },
+    "eclipse": () => {
+      header("8. Eclipse Analysis", "Source: eclipse log");
+      tableRows(
+        [{ key: "Satellite Name", label: "Satellite" }, { key: "Eclipse Type", label: "Type" }, { key: "Start UTC", label: "Start UTC" }, { key: "Duration (s)", label: "Duration (s)" }],
+        data.tables?.eclipse
+      );
+    },
+    "observation": () => {
+      header("9. Observation Analysis", "Source: State Report + camera swath model");
+      kvTable([
+        ["Summed Satellite Observation Time", data.coverage?.observation?.overall?.["Summed Satellite Observation Time"]],
+        ["Maximum Simultaneous Observing Satellites", data.coverage?.observation?.overall?.["Maximum Simultaneous Observing Satellites"]],
+        ["Overall Observation Duty Cycle (%)", number(data.coverage?.observation?.overall?.["Overall Observation Duty Cycle (%)"], 2)],
+      ]);
+    },
+    "sat-contribution": () => {
+      header("10. Satellite Contribution", "Per-satellite coverage / contact / duty-cycle breakdown");
+      tableRows(
+        [{ key: "satellite", label: "Satellite" }, { key: "coverageContributionPct", label: "Coverage %" }, { key: "rfContacts", label: "RF" }, { key: "opticalContacts", label: "Optical" }, { key: "meanDutyCyclePct", label: "Duty %" }],
+        a.satelliteContributions
+      );
+    },
+    "comparison": () => {
+      header("11. Mission Comparison", "Live metrics computed independently from each mission's own data — see the Mission column for each configuration");
+      tableRows(
+        [{ key: "label", label: "Mission" }, { key: "coveragePercent", label: "Coverage %" }, { key: "meanRevisitMin", label: "Mean Revisit" }, { key: "largestGapMin", label: "Largest Gap" }, { key: "rfEvents", label: "RF Events" }, { key: "eclipseEvents", label: "Eclipse Events" }],
+        compareRows
+      );
+    },
+    "sim-details": () => {
+      header("12. Simulation Details", "Verified = derived from this mission's own data. Assumed = standard reference value, not parsed from this mission's mission script.");
+      kvTable(Object.entries(sim).filter(([k]) => k !== "verifiedFields").map(([k, v]) => [`${k}${verified.has(k) ? " (Verified)" : " (Assumed)"}`, v]));
+    },
+    "glossary-def": () => {
+      header("13. Parameter Definitions & Methodology", "Full parameter glossary — definition, unit, source, calculation");
+      tableRows(
+        [{ key: "name", label: "Parameter" }, { key: "definition", label: "Definition" }, { key: "calculation", label: "Calculation" }],
+        glossaryTerms, 60
+      );
+    },
+    "glossary-source": () => {
+      header("14. Data Sources", "Where each parameter's value originates");
+      tableRows(
+        [{ key: "name", label: "Parameter" }, { key: "source", label: "Source" }],
+        glossaryTerms, 60
+      );
+    },
+    "data-quality": () => {
+      header("15. Data Quality & Validation", "Per-dataset parsing diagnostics for this mission");
+      tableRows(
+        [{ key: "dataset", label: "Dataset" }, { key: "status", label: "Status" }, { key: "detail", label: "Detail" }],
+        quality?.checks
+      );
+    },
+    "engineering-obs": () => {
+      header("16. Engineering Observations", "Factual deltas between missions — not a recommendation of which to choose");
+      autoTable(doc, {
+        startY: y,
+        body: (observations || []).map((o) => [o]),
+        styles: { fontSize: 8, cellPadding: 6 },
+        margin: { left: 40, right: 40 },
+      });
+      y = doc.lastAutoTable.finalY + 24;
+    },
+    "conclusions": () => {
+      header("17. Conclusions", "Summary of findings for this mission");
+      const conclusionLines = [
+        `This report covers the ${mission.name} mission in its ${c.planes} × ${c.satellitesPerPlane} (${c.configuredSatellites}-satellite) configuration.`,
+        `${aoiLabel} coverage over the analysis window was ${number(data.coverage?.percent, 2)}%, with a mean revisit time of ${number(summary.meanRevisitMin, 1)} minutes.`,
+        `The largest single coverage gap observed in the analysis grid was ${number(gap.largestGapMin, 1)} minutes${gap.dataBearingCells ? ` (based on ${gap.dataBearingCells} of ${gap.totalCells} grid cells with sufficient real data)` : ""}.`,
+        `The RF ground segment recorded ${m.rfEvents} contacts (${number(m.rfMinutes, 1)} minutes total); the optical segment recorded ${m.opticalEvents} contacts (${number(m.opticalMinutes, 1)} minutes total).`,
+        observations[0] || "",
+      ].filter(Boolean);
+      doc.setFontSize(10);
+      doc.setTextColor(230, 230, 230);
+      let cy = y;
+      conclusionLines.forEach((line) => {
+        const split = doc.splitTextToSize(line, pageW - 80);
+        doc.text(split, 40, cy);
+        cy += split.length * 14 + 10;
+      });
+    },
+  };
+
+  // Duty Cycle K1-K10: each phase's own live view draws its metrics from a
+  // mix of data.duty, data.metrics, data.constellation and data.charts (see
+  // the Kx view components above) -- this mirrors that same real, per-
+  // mission data rather than any fixed narrative, so it stays correct for
+  // every mission (satellite count, AOI label, ground-station set) instead
+  // of a copied description that would misname the mission for anyone but
+  // the one it was first written for.
+  K_DEFS.forEach((def, i) => {
+    chapters[def.id] = () => {
+      header(
+        `${18 + i}. Duty Cycle — ${def.k} ${def.name}`,
+        `Phase ${def.phase} of 2 · ${def.subsystem} subsystem · ${c.configuredSatellites ?? "?"}-satellite ${mission.name || "mission"} over ${mission.aoi || aoiLabel}`
+      );
+      kvTable([
+        ["Subsystem", def.subsystem], ["Phase", `${def.phase} of 2`],
+        ["Configured satellites", c.configuredSatellites],
+        ["Fleet duty cycle (%)", number(duty.metrics?.fleetDutyPercent, 2)],
+        ["Fleet active hours", number(duty.metrics?.fleetActiveHours, 2)],
+        [`${aoiLabel} coverage (%)`, number(data.coverage?.percent, 2)],
+        ["RF contacts / minutes", `${m.rfEvents ?? "NA"} / ${number(m.rfMinutes, 1)}`],
+        ["Optical contacts / minutes", `${m.opticalEvents ?? "NA"} / ${number(m.opticalMinutes, 1)}`],
+        ["Eclipse events / hours", `${m.eclipseEvents ?? "NA"} / ${number(m.eclipseHours, 1)}`],
+      ]);
+      if (def.subsystem === "GSN" && (data.charts?.groundStationsRf?.length || data.charts?.groundStationsOptical?.length)) {
+        tableRows(
+          [{ key: "Ground Station", label: "Ground Station" }, { key: "Satellite Name", label: "Satellite" }, { key: "Duration (s)", label: "Duration (s)" }],
+          [...(data.charts?.groundStationsRf || []), ...(data.charts?.groundStationsOptical || [])]
+        );
+      } else if (duty.summary?.length) {
+        tableRows(
+          [{ key: "satellite", label: "Satellite" }, { key: "dutyPercent", label: "Duty %" }, { key: "activeMinutes", label: "Active (min)" }, { key: "samples", label: "Samples" }],
+          duty.summary
+        );
+      }
+    };
+  });
+
+  const idsToRun = selectedIds && selectedIds.size ? [...selectedIds].filter((id) => chapters[id]) : Object.keys(chapters);
+
   // Cover page
   doc.setFillColor(6, 10, 20);
   doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F");
@@ -1834,128 +2371,18 @@ async function generateFullMissionReportPdf({ data, glossaryMap, quality, apiBas
   doc.text(`Configuration: ${c.planes} × ${c.satellitesPerPlane}  ·  ${c.configuredSatellites} satellites  ·  ${c.altitudeKm} km, ${number(c.inclinationDeg, 1)}°`, 40, 190);
   doc.text(`Area of Interest: ${mission.aoi || "Not configured"}`, 40, 206);
   doc.text(`Generated ${new Date().toLocaleString()}`, 40, 222);
+  if (selectedIds && selectedIds.size) {
+    doc.text(`Selected sections: ${idsToRun.length} of ${Object.keys(chapters).length}`, 40, 238);
+  }
 
-  header("1. Executive Summary", `${mission.name} — key mission metrics, from this mission's own processed GMAT data`);
-  kvTable([
-    ["Mission", mission.name], ["Configuration", `${c.planes} × ${c.satellitesPerPlane}`],
-    ["Total Satellites", c.configuredSatellites], ["Altitude (km)", c.altitudeKm], ["Inclination (deg)", c.inclinationDeg],
-    ["Area of Interest", mission.aoi], [`${aoiLabel} Coverage (%)`, number(data.coverage?.percent, 2)],
-    ["Mean Revisit (min)", number(summary.meanRevisitMin, 1)], ["Largest Coverage Gap (min)", number(gap.largestGapMin, 1)],
-    ["RF Contact Events", m.rfEvents], ["Optical Contact Events", m.opticalEvents], ["Eclipse Events", m.eclipseEvents],
-  ]);
-
-  header("2. Mission Configuration", "Source: this mission's own Mission_Configuration.xlsx");
-  kvTable([
-    ...(data.configuration?.mission || []).map((r) => [r.Parameter, r.Value]),
-    ...(data.configuration?.constellation || []).map((r) => [r.Parameter, r.Value]),
-    ...(data.configuration?.orbit || []).map((r) => [r.Parameter, r.Value]),
-  ]);
-
-  header("3. Coverage Analysis", "Source: GMAT State Report (ground track) + camera swath model");
-  kvTable([
-    [`${aoiLabel} Coverage (%)`, number(data.coverage?.percent, 2)],
-    ["Covered Cells", data.coverage?.coveredCells], ["Total Cells", data.coverage?.totalCells],
-  ]);
-
-  header("4. Coverage Gap Analysis", "Derived from the same real per-cell pass data as Revisit Analysis");
-  kvTable([
-    ["Largest Gap (min)", number(gap.largestGapMin, 1)], ["Mean Gap (min)", number(gap.meanGapMin, 1)],
-    ["Median Gap (min)", number(gap.medianGapMin, 1)], ["Max Gap (min)", number(gap.maxGapMin, 1)],
-    ["95th Percentile Gap (min)", number(gap.p95GapMin, 1)],
-    ["% Grid Cells Satisfying Requirement", number(gap.pctSatisfyingRequirement, 1)],
-    ["Data-bearing Grid Cells", `${gap.dataBearingCells ?? 0} of ${gap.totalCells ?? 0}`],
-  ]);
-
-  header("5. Revisit Analysis", "Source: GMAT State Report, densified ground track");
-  kvTable([
-    ["Mean Revisit (min)", number(revisit.mean_revisit, 1)], ["Minimum Revisit (min)", number(revisit.min_revisit, 1)],
-    ["Maximum Revisit (min)", number(revisit.max_revisit, 1)], ["Median Revisit (min)", number(revisit.median_revisit, 1)],
-    ["95th Percentile Revisit (min)", number(revisit.p95_revisit, 1)],
-  ]);
-
-  header("6. RF Contact Analysis", "Source: GMAT Contact Locator (RF)");
-  tableRows(
-    [{ key: "Satellite Name", label: "Satellite" }, { key: "Ground Station", label: "Ground Station" }, { key: "Start UTC", label: "Start UTC" }, { key: "Duration (s)", label: "Duration (s)" }],
-    data.tables?.rf
-  );
-
-  header("7. Ground Station Analysis", "The mission's real ground segments — RF (5° mask) and Optical (20° mask)");
-  tableRows(
-    [{ key: "stationName", label: "Station" }, { key: "linkType", label: "Link" }, { key: "minElevationDeg", label: "Min Elev (deg)" }, { key: "passCount", label: "Passes" }, { key: "totalDurationSec", label: "Total (s)" }, { key: "longestGapMin", label: "Longest Gap (min)" }],
-    a.groundStations
-  );
-
-  header("8. Eclipse Analysis", "Source: GMAT Eclipse Locator");
-  tableRows(
-    [{ key: "Satellite Name", label: "Satellite" }, { key: "Eclipse Type", label: "Type" }, { key: "Start UTC", label: "Start UTC" }, { key: "Duration (s)", label: "Duration (s)" }],
-    data.tables?.eclipse
-  );
-
-  header("9. Observation Analysis", "Source: GMAT State Report + camera swath model");
-  kvTable([
-    ["Summed Satellite Observation Time", data.coverage?.observation?.overall?.["Summed Satellite Observation Time"]],
-    ["Maximum Simultaneous Observing Satellites", data.coverage?.observation?.overall?.["Maximum Simultaneous Observing Satellites"]],
-    ["Overall Observation Duty Cycle (%)", number(data.coverage?.observation?.overall?.["Overall Observation Duty Cycle (%)"], 2)],
-  ]);
-
-  header("10. Satellite Contribution", "Per-satellite coverage / contact / duty-cycle breakdown");
-  tableRows(
-    [{ key: "satellite", label: "Satellite" }, { key: "coverageContributionPct", label: "Coverage %" }, { key: "rfContacts", label: "RF" }, { key: "opticalContacts", label: "Optical" }, { key: "meanDutyCyclePct", label: "Duty %" }],
-    a.satelliteContributions
-  );
-
-  header("11. Mission Comparison", "Live metrics computed independently from each mission's own data — see the Mission column for each configuration");
-  tableRows(
-    [{ key: "label", label: "Mission" }, { key: "coveragePercent", label: "Coverage %" }, { key: "meanRevisitMin", label: "Mean Revisit" }, { key: "largestGapMin", label: "Largest Gap" }, { key: "rfEvents", label: "RF Events" }, { key: "eclipseEvents", label: "Eclipse Events" }],
-    compareRows
-  );
-
-  header("12. Simulation Details", "Verified = derived from this mission's own data. Assumed = standard reference value, not parsed from this mission's GMAT script.");
-  kvTable(Object.entries(sim).filter(([k]) => k !== "verifiedFields").map(([k, v]) => [`${k}${verified.has(k) ? " (Verified)" : " (Assumed)"}`, v]));
-
-  header("13. Parameter Definitions & Methodology", "Full parameter glossary — definition, unit, source, calculation");
-  tableRows(
-    [{ key: "name", label: "Parameter" }, { key: "definition", label: "Definition" }, { key: "calculation", label: "Calculation" }],
-    glossaryTerms, 60
-  );
-
-  header("14. Data Sources", "Where each parameter's value originates");
-  tableRows(
-    [{ key: "name", label: "Parameter" }, { key: "source", label: "Source" }],
-    glossaryTerms, 60
-  );
-
-  header("15. Data Quality & Validation", "Per-dataset parsing diagnostics for this mission");
-  tableRows(
-    [{ key: "dataset", label: "Dataset" }, { key: "status", label: "Status" }, { key: "detail", label: "Detail" }],
-    quality?.checks
-  );
-
-  header("16. Engineering Observations", "Factual deltas between missions — not a recommendation of which to choose");
-  autoTable(doc, {
-    startY: y,
-    body: (observations || []).map((o) => [o]),
-    styles: { fontSize: 8, cellPadding: 6 },
-    margin: { left: 40, right: 40 },
-  });
-  y = doc.lastAutoTable.finalY + 24;
-
-  header("17. Conclusions", "Summary of findings for this mission");
-  const conclusionLines = [
-    `This report covers the ${mission.name} mission in its ${c.planes} × ${c.satellitesPerPlane} (${c.configuredSatellites}-satellite) configuration.`,
-    `${aoiLabel} coverage over the analysis window was ${number(data.coverage?.percent, 2)}%, with a mean revisit time of ${number(summary.meanRevisitMin, 1)} minutes.`,
-    `The largest single coverage gap observed in the analysis grid was ${number(gap.largestGapMin, 1)} minutes${gap.dataBearingCells ? ` (based on ${gap.dataBearingCells} of ${gap.totalCells} grid cells with sufficient real data)` : ""}.`,
-    `The RF ground segment recorded ${m.rfEvents} contacts (${number(m.rfMinutes, 1)} minutes total); the optical segment recorded ${m.opticalEvents} contacts (${number(m.opticalMinutes, 1)} minutes total).`,
-    observations[0] || "",
-  ].filter(Boolean);
-  doc.setFontSize(10);
-  doc.setTextColor(230, 230, 230);
-  let cy = y;
-  conclusionLines.forEach((line) => {
-    const split = doc.splitTextToSize(line, pageW - 80);
-    doc.text(split, 40, cy);
-    cy += split.length * 14 + 10;
-  });
+  // REPORT_CHAPTER_DEFS fixes the canonical order; idsToRun (a plain array
+  // for "all", a Set-derived array for "selected") may not match it, so the
+  // PDF's page order always follows the canonical list rather than
+  // whatever order the caller's selection happened to be in.
+  REPORT_CHAPTER_DEFS
+    .map((d) => d.id)
+    .filter((id) => idsToRun.includes(id))
+    .forEach((id) => chapters[id]());
 
   doc.save(`${(mission.name || "mission").replace(/\s+/g, "_")}_Full_Mission_Report.pdf`);
 }
@@ -2024,7 +2451,7 @@ function SatSelector({ satellites = [], selected = [], onToggle, onSelectAll }) 
             style={{ "--c": hueFor(selected.indexOf(sat) >= 0 ? selected.indexOf(sat) : idx) }}
           >
             <i />
-            {sat.replace(/^.*_(?=\d+$)/, "")}
+            {shortSat(sat)}
           </button>
         ))}
       </div>
@@ -2034,12 +2461,21 @@ function SatSelector({ satellites = [], selected = [], onToggle, onSelectAll }) 
 
 function useSatSelection(satellites, initialCount = null) {
   const [selected, setSelected] = React.useState([]);
+  // Keyed on the actual roster, not just its length: switching mission
+  // in-session (the header dropdown, no page reload) can swap in a
+  // same-size roster with different satellite names (e.g. "ASC_074A" ->
+  // "01"), which used to leave `selected` holding names absent from the
+  // new roster -- every map/chart reading `selected` then silently
+  // rendered empty instead of picking a fresh default.
+  const rosterKey = satellites.join("|");
   React.useEffect(() => {
-    if (satellites.length && selected.length === 0) {
+    if (satellites.length) {
       setSelected(initialCount ? satellites.slice(0, initialCount) : [...satellites]);
+    } else {
+      setSelected([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [satellites.length]);
+  }, [rosterKey]);
   const toggle = (sat) => setSelected((cur) => (cur.includes(sat) ? cur.filter((s) => s !== sat) : [...cur, sat]));
   const selectAll = () => setSelected((cur) => (cur.length === satellites.length ? [] : [...satellites]));
   return [selected, toggle, selectAll];
@@ -2048,7 +2484,7 @@ function useSatSelection(satellites, initialCount = null) {
 /* -------------------------------- views ------------------------------- */
 
 const OVERVIEW_METHODS = [
-  { metric: "Configured fleet", meaning: "Satellites defined in Mission_Configuration.xlsx, compared against satellites actually seen in the processed GMAT files.", formula: "configured = planes × satellites/plane; detected = distinct satellites across RF/Optical/Eclipse/State files" },
+  { metric: "Configured fleet", meaning: "Satellites defined in Mission_Configuration.xlsx, compared against satellites actually seen in the processed telemetry files.", formula: "configured = planes × satellites/plane; detected = distinct satellites across RF/Optical/Eclipse/State files" },
   { metric: "RF / Optical contacts", meaning: "One row per continuous line-of-sight contact between a satellite and a ground station, across the full 48-satellite fleet.", formula: "events = row count in RF_Contacts.xlsx / Optical_Contacts.xlsx; minutes = Σ Duration(s) ÷ 60" },
   { metric: "Eclipse events", meaning: "One row per Sun-blocked interval (umbra or penumbra) for any satellite.", formula: "hours = Σ Duration(s) ÷ 3600, from All_Eclipse_Events.xlsx" },
   { metric: "Data coverage", meaning: "How much of the 48-satellite fleet has usable telemetry in the processed state file.", formula: "detected satellites ÷ configured satellites × 100" },
@@ -2057,21 +2493,27 @@ const OVERVIEW_METHODS = [
 function Overview({ data, state }) {
   const m = data.metrics;
   const c = data.constellation;
+  // Real per-satellite breakdown, already fetched for the Events by
+  // Satellite panel below -- reused here for each KPI's sparkline rather
+  // than invented, so the bars are the same fleet split shown in that
+  // panel's own table, just visualised at a glance.
+  const em = data.charts.eventMatrix || [];
+  const emLabels = em.map((r) => r.satellite);
   return (
     <div className="contentGrid">
       <MissionStrip data={data} />
       <div className="kpiGrid">
         <KpiCard index={0} icon={Satellite} label="Configured fleet" value={c.configuredSatellites} detail={`${number(c.detectedSatellites)} of ${number(c.configuredSatellites)} satellites detected in data`} accent={COLORS.blue} />
-        <KpiCard index={1} icon={Antenna} label="RF contacts" value={m.rfEvents} detail={`${asMinutes(m.rfMinutes)} across the fleet`} accent={COLORS.cyan} />
-        <KpiCard index={2} icon={Zap} label="Optical contacts" value={m.opticalEvents} detail={`${asMinutes(m.opticalMinutes)} across the fleet`} accent={COLORS.green} />
-        <KpiCard index={3} icon={SunMedium} label="Eclipse events" value={m.eclipseEvents} detail={`${asHours(m.eclipseHours)} across the fleet`} accent={COLORS.amber} />
+        <KpiCard index={1} icon={Antenna} label="RF contacts" value={m.rfEvents} detail={`${asMinutes(m.rfMinutes)} across the fleet`} accent={COLORS.cyan} trend={em.map((r) => r.rf)} trendLabels={emLabels} />
+        <KpiCard index={2} icon={Zap} label="Optical contacts" value={m.opticalEvents} detail={`${asMinutes(m.opticalMinutes)} across the fleet`} accent={COLORS.green} trend={em.map((r) => r.optical)} trendLabels={emLabels} />
+        <KpiCard index={3} icon={SunMedium} label="Eclipse events" value={m.eclipseEvents} detail={`${asHours(m.eclipseHours)} across the fleet`} accent={COLORS.amber} trend={em.map((r) => r.eclipse)} trendLabels={emLabels} />
         <KpiCard index={4} icon={Gauge} label="Data coverage" value={m.fleetCoveragePercent} format={asPct} detail={`${compact(m.stateRows)} state samples, ${c.configuredSatellites} satellites`} accent={COLORS.red} />
       </div>
       <Panel index={5} title="Constellation Simulator" sub="Animated ground tracks over the analysis window · play, scrub and set the trail length" className="wide">
         {state ? (
-          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} aoiBox={state.aoi || data.coverage.aoi} aoiLabel={data.mission.aoiRegionLabel} />
+          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} aoiBox={state.aoi || data.coverage.aoi} outline={data.coverage.outline} secondary={data.coverage.tasmania} aoiLabel={data.mission.aoiRegionLabel} />
         ) : (
-          <WorldOrbitMap positions={data.charts.latestPositions} tracks={data.charts.tracks} />
+          <WorldOrbitMap positions={data.charts.latestPositions} tracks={data.charts.tracks} aoiBox={data.coverage.aoi} outline={data.coverage.outline} secondary={data.coverage.tasmania} />
         )}
       </Panel>
       <Panel index={6} title="Events by Satellite" sub="RF, optical and eclipse events, per satellite">
@@ -2217,13 +2659,13 @@ function PayloadImagingView({ data, state }) {
     .slice()
     .sort((a, b) => (b.estimatedScenes || 0) - (a.estimatedScenes || 0))
     .slice(0, 24)
-    .map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }));
+    .map((r) => ({ ...r, satellite: shortSat(r.satellite, "S") }));
 
   // The window these figures cover, read from the same state telemetry range
   // shown elsewhere (State Explorer, etc.) rather than assumed to be "a day" --
   // this view has looked like a single fixed snapshot with no stated time
   // scope, which is exactly what these figures are NOT: they scale with
-  // however long the loaded GMAT run actually covers.
+  // however long the loaded simulation run actually covers.
   const rangeStart = state?.range?.start ? new Date(state.range.start) : null;
   const rangeEnd = state?.range?.end ? new Date(state.range.end) : null;
   const windowDays = rangeStart && rangeEnd
@@ -2240,17 +2682,17 @@ function PayloadImagingView({ data, state }) {
       <NoticeBanner icon={Aperture} tone={COLORS.violet} title="What 'captured imagery' means here" index={0}>
         The onboard sensor is a pushbroom imager — it scans a continuous strip beneath the satellite rather than
         taking discrete photos. Every figure on this page is <strong>calculated</strong> from real camera geometry
-        and real GMAT telemetry, for <strong>{windowLabel}</strong> across <strong>all {satCount} satellites</strong> --
-        not a fabricated or placeholder number, and not per-satellite-per-day unless stated. Longer or shorter GMAT
+        and real mission telemetry, for <strong>{windowLabel}</strong> across <strong>all {satCount} satellites</strong> --
+        not a fabricated or placeholder number, and not per-satellite-per-day unless stated. Longer or shorter simulation
         runs change every total here proportionally; see the calculation notes below for the exact formulas and a
         column-by-column trace of what feeds each one.
       </NoticeBanner>
 
       <div className="kpiGrid four">
-        <KpiCard index={1} icon={Aperture} label="Ground swath" value={Number(camera["Ground Swath (km)"])} format={(v) => `${number(v, 2)} km`} detail={`${number(camera["GSD (m/pixel)"], 2)} m/pixel GSD · camera basis for all ${satCount} satellites · calculated from geometry, not measured`} accent={COLORS.violet} />
-        <KpiCard index={2} icon={Camera} label="Estimated scenes captured" value={Number(imaging.fleet.totalEstimatedScenes)} format={(v) => compact(v)} detail={`across ${imaging.fleet.satellitesWithImagery} of ${imaging.fleet.satelliteCount} satellites, over ${windowLabel}`} accent={COLORS.cyan} />
-        <KpiCard index={3} icon={Activity} label="Imaged distance" value={Number(imaging.fleet.totalImagedDistanceKm)} format={(v) => `${compact(v)} km`} detail={`combined along-track strip length, all ${satCount} satellites, over ${windowLabel}`} accent={COLORS.green} />
-        <KpiCard index={4} icon={Globe2} label="Imaged area (fleet-effort)" value={Number(imaging.fleet.totalImagedAreaKm2)} format={(v) => `${compact(v)} km²`} detail="summed per-satellite effort — overlaps counted, not a unique-area figure" accent={COLORS.amber} />
+        <KpiCard index={1} icon={Aperture} label="Ground swath" value={Number(camera["Ground Swath (km)"])} format={(v) => `${number(v, 2)} km`} detail={`${number(camera["GSD (m/pixel)"], 2)} m/pixel GSD · camera basis for all ${satCount} satellites · calculated from geometry, not measured`} accent={COLORS.violet} infoKey="ground_swath" />
+        <KpiCard index={2} icon={Camera} label="Estimated scenes captured" value={Number(imaging.fleet.totalEstimatedScenes)} format={(v) => compact(v)} detail={`across ${imaging.fleet.satellitesWithImagery} of ${imaging.fleet.satelliteCount} satellites, over ${windowLabel}`} accent={COLORS.cyan} infoKey="estimated_scenes_captured" />
+        <KpiCard index={3} icon={Activity} label="Imaged distance" value={Number(imaging.fleet.totalImagedDistanceKm)} format={(v) => `${compact(v)} km`} detail={`combined along-track strip length, all ${satCount} satellites, over ${windowLabel}`} accent={COLORS.green} infoKey="imaged_distance" />
+        <KpiCard index={4} icon={Globe2} label="Imaged area (fleet-effort)" value={Number(imaging.fleet.totalImagedAreaKm2)} format={(v) => `${compact(v)} km²`} detail="summed per-satellite effort — overlaps counted, not a unique-area figure" accent={COLORS.amber} infoKey="imaged_area_fleet_effort" />
       </div>
 
       <Panel
@@ -2376,7 +2818,7 @@ function GlobalCoverageView({ data, state }) {
 
       <Panel index={5} title="Full-Globe Constellation Simulator" sub={`Unrestricted ground tracks — the same ${data.constellation.configuredSatellites} satellites, no AOI filter`} className="wide">
         {state ? (
-          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} defaultWindowMs={Infinity} aoiBox={state.aoi || data.coverage.aoi} aoiLabel={aoiLabel} />
+          <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} defaultWindowMs={Infinity} aoiBox={state.aoi || data.coverage.aoi} outline={data.coverage.outline} secondary={data.coverage.tasmania} aoiLabel={aoiLabel} />
         ) : (
           <div className="emptyState">Loading full-fleet ground tracks…</div>
         )}
@@ -2413,7 +2855,7 @@ function GlobalCoverageView({ data, state }) {
 }
 
 const DATA_METHODS = [
-  { metric: "Row counts", meaning: "Direct row counts of the processed Excel outputs the pipeline produces from raw GMAT reports — no rows are added, removed, or estimated for display.", formula: "len(dataframe) per file" },
+  { metric: "Row counts", meaning: "Direct row counts of the processed Excel outputs the pipeline produces from raw raw mission reports — no rows are added, removed, or estimated for display.", formula: "len(dataframe) per file" },
   { metric: "Configuration issues", meaning: "Cross-checks Mission_Configuration.xlsx against itself and the detected fleet (e.g. planes × satellites/plane, missing payload/power values).", formula: "see core/config_loader.validate_configuration()" },
 ];
 
@@ -2448,7 +2890,7 @@ function DataView({ data, missionId, missions, glossaryMap }) {
       <Panel
         index={1}
         title="Data Quality & Validation"
-        sub={quality ? `${quality.summary.ok} OK · ${quality.summary.warning} partial · ${quality.summary.missing} not available, out of ${quality.summary.total} datasets checked` : "Checking parsed GMAT outputs…"}
+        sub={quality ? `${quality.summary.ok} OK · ${quality.summary.warning} partial · ${quality.summary.missing} not available, out of ${quality.summary.total} datasets checked` : "Checking parsed processed outputs…"}
         className="wide"
       >
         {quality ? (
@@ -2471,7 +2913,7 @@ function DataView({ data, missionId, missions, glossaryMap }) {
           <div className="emptyState">Loading validation results…</div>
         )}
       </Panel>
-      <Panel index={1} title="Dataset Inventory" sub={`Processed GMAT outputs · ${data.constellation.configuredSatellites}-satellite fleet`} className="wide">
+      <Panel index={1} title="Dataset Inventory" sub={`Processed processed outputs · ${data.constellation.configuredSatellites}-satellite fleet`} className="wide">
         <div className="inventory">
           <KpiCard index={0} icon={Radio} label="RF rows" value={data.metrics.rfEvents} detail="RF_Contacts.xlsx — 1 row per RF pass" accent={COLORS.blue} />
           <KpiCard index={1} icon={Antenna} label="Optical rows" value={data.metrics.opticalEvents} detail="Optical_Contacts.xlsx — 1 row per optical pass" accent={COLORS.green} />
@@ -2523,14 +2965,14 @@ const STATE_EXPLORER_COLUMNS = [
 ];
 
 const STATE_EXPLORER_METHODS = [
-  { metric: "Samples (same value for every satellite)", meaning: "GMAT reports on one shared UTC time grid: every row is one timestamp, with every satellite's own fields as separate columns on that row. All satellites are therefore sampled exactly as many times as there are rows in the state report, by construction — not because the number happened to come out equal.", formula: "Samples = row count of Satellite_State_History.xlsx for the loaded window (identical for every satellite)" },
+  { metric: "Samples (same value for every satellite)", meaning: "raw mission reports on one shared UTC time grid: every row is one timestamp, with every satellite's own fields as separate columns on that row. All satellites are therefore sampled exactly as many times as there are rows in the state report, by construction — not because the number happened to come out equal.", formula: "Samples = row count of Satellite_State_History.xlsx for the loaded window (identical for every satellite)" },
   { metric: "Instantaneous Geodetic Altitude (min/mean/max)", meaning: "Range of the 'Altitude' column in Satellite_State_History.xlsx for this satellite across the analysis window: the actual propagated altitude at each timestep, not the fixed Nominal Orbit Altitude.", formula: "min / mean / max(Altitude)" },
   { metric: "Mean eccentricity", meaning: "Average of the state file's 'ECC' column — how far the orbit deviates from a perfect circle (0 = circular).", formula: "mean(ECC)" },
   { metric: "Mean RMAG", meaning: "Average orbit radius from Earth's center (Earth radius + altitude), from the state file's 'RMAG' column.", formula: "mean(RMAG)" },
   { metric: "AOI dwell %", meaning: "Share of this satellite's state samples whose sub-point falls inside the mission AOI rectangle.", formula: "samples inside the AOI bounds ÷ total samples × 100" },
 ];
 
-function StateExplorer({ state, mission, stateLoading }) {
+function StateExplorer({ state, mission, stateLoading, coverage }) {
   const satellites = state?.satellites || [];
   const [selected, toggle, selectAll] = useSatSelection(satellites, 6);
   const [field, setField] = React.useState("alt");
@@ -2616,7 +3058,7 @@ function StateExplorer({ state, mission, stateLoading }) {
       </Panel>
 
       <Panel index={2} title="Ground Tracks" sub="Sub-satellite paths for the selected fleet" className="wide">
-        <WorldOrbitMap positions={positions} tracks={tracks} maxTracks={selected.length} />
+        <WorldOrbitMap positions={positions} tracks={tracks} maxTracks={selected.length} aoiBox={coverage?.aoi} outline={coverage?.outline} secondary={coverage?.tasmania} />
       </Panel>
 
       <Panel index={3} title="Per-Satellite Summary" sub="Full fleet — this is the data exported to PDF" className="wide">
@@ -2624,7 +3066,7 @@ function StateExplorer({ state, mission, stateLoading }) {
           rows={state.summary}
           columns={[
             { key: "satellite", label: "Satellite" },
-            { key: "samples", label: "Samples", render: (v) => number(v) },
+            { key: "samples", label: "Samples", infoKey: "samples_per_satellite", render: (v) => number(v) },
             { key: "minAltitude", label: "Min alt", render: (v) => `${number(v, 1)} km` },
             { key: "meanAltitude", label: "Mean alt", render: (v) => `${number(v, 1)} km` },
             { key: "maxAltitude", label: "Max alt", render: (v) => `${number(v, 1)} km` },
@@ -2632,14 +3074,6 @@ function StateExplorer({ state, mission, stateLoading }) {
             { key: "aoiSharePercent", label: "AOI dwell", render: (v) => `${number(v, 2)}%` },
           ]}
         />
-        <p className="panelFootnote">
-          <strong>Samples is the same number for every satellite by design, not a bug:</strong> GMAT reports every
-          satellite&apos;s state on one shared UTC time grid — a single row per timestamp, with all {satellites.length} satellites&apos;
-          latitude/longitude/altitude/RMAG/eccentricity as separate columns on that same row. Every satellite is
-          therefore observed exactly as many times as there are rows in the report window. The column stays in the
-          table as a data-quality check: if any satellite ever showed a different count, that would mean its
-          telemetry had missing or unparseable rows for part of the window — this column is what would catch that.
-        </p>
       </Panel>
 
       <MethodNote items={STATE_EXPLORER_METHODS} />
@@ -2652,7 +3086,7 @@ function StateExplorer({ state, mission, stateLoading }) {
 const K_CONTENT = {
   k1: {
     requirement:
-      "48 crafts move across Australia — each craft holds its designated SSO (50°) path. The orbit subsystem keeps the constellation transiting the country every revolution.",
+      "48 crafts move across the mission's AOI — each craft holds its designated SSO (50°) path. The orbit subsystem keeps the constellation transiting the region every revolution.",
     methods: [
       { metric: "Crafts in transit / Nominal Orbit Altitude", meaning: "Read directly from Mission_Configuration.xlsx (Constellation and Orbit tables) — not derived.", formula: "Total Satellites; Altitude (km)" },
       { metric: "Fleet AOI dwell", meaning: "Average, across all 48 satellites, of how much of the analysis window each spends with its sub-point inside the AOI rectangle.", formula: "mean( AOI samples ÷ total samples × 100 ) across satellites" },
@@ -2668,14 +3102,14 @@ const K_CONTENT = {
         </div>
         <Panel index={4} title="Constellation Transit Simulator" sub={`Animated ground tracks — watch the ${data.constellation.configuredSatellites} crafts transit ${data.mission.aoiRegionLabel || "Australia"}`} className="wide">
           {state ? (
-            <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} aoiBox={state.aoi || data.coverage.aoi} aoiLabel={data.mission.aoiRegionLabel} />
+            <ConstellationSim series={state.series} satellites={state.satellites} range={state.range} aoiBox={state.aoi || data.coverage.aoi} outline={data.coverage.outline} secondary={data.coverage.tasmania} aoiLabel={data.mission.aoiRegionLabel} />
           ) : (
-            <WorldOrbitMap positions={data.charts.latestPositions} tracks={data.charts.tracks} />
+            <WorldOrbitMap positions={data.charts.latestPositions} tracks={data.charts.tracks} aoiBox={data.coverage.aoi} outline={data.coverage.outline} secondary={data.coverage.tasmania} />
           )}
         </Panel>
         {state ? (
           <Panel index={5} title="AOI Dwell per Satellite" sub={`Share of the window each craft spends over the ${data.mission.aoiRegionLabel || "Australia"} AOI`} className="wide">
-            <SimpleBar rows={[...state.summary].sort((a, b) => b.aoiSharePercent - a.aoiSharePercent).slice(0, 24).map((r) => ({ satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S"), aoiSharePercent: r.aoiSharePercent }))} x="satellite" y="aoiSharePercent" color={SUBSYS.Orbit.color} format={(v) => `${number(v, 2)}%`} />
+            <SimpleBar rows={[...state.summary].sort((a, b) => b.aoiSharePercent - a.aoiSharePercent).slice(0, 24).map((r) => ({ satellite: shortSat(r.satellite, "S"), aoiSharePercent: r.aoiSharePercent }))} x="satellite" y="aoiSharePercent" color={SUBSYS.Orbit.color} format={(v) => `${number(v, 2)}%`} />
           </Panel>
         ) : null}
       </>
@@ -2683,7 +3117,7 @@ const K_CONTENT = {
   },
   k2: {
     requirement:
-      "48 crafts use sensor power only while travelling over Australia. Payload ON/OFF is derived from the modeled camera swath crossing the country — power is spent on coverage, not idle flight.",
+      "48 crafts use sensor power only while travelling over the mission's AOI. Payload ON/OFF is derived from the modeled camera swath crossing the region — power is spent on coverage, not idle flight.",
     methods: [
       { metric: "Fleet ON time / duty cycle", meaning: "A state sample counts as sensor ON when the modeled camera footprint (half the ground swath around the sub-satellite point) intersects the mission's AOI land boundary, across all 48 satellites.", formula: "duty % = ON samples ÷ total samples × 100" },
       { metric: "AOI + eclipse", meaning: "Hours where a satellite is simultaneously ON (observing) and inside a recorded eclipse interval — power drawn from battery, not solar, during that overlap.", formula: "Σ duration where Observing = true AND In Eclipse = true" },
@@ -2693,7 +3127,7 @@ const K_CONTENT = {
       <>
         <div className="kpiGrid four">
           <KpiCard index={0} icon={Zap} label="Fleet ON time" value={Number(data.duty.metrics.fleetActiveHours)} format={asHours} detail={`sensors active over AOI, across ${data.constellation.configuredSatellites} satellites`} accent={SUBSYS.Power.color} />
-          <KpiCard index={1} icon={Gauge} label="Fleet duty cycle" value={Number(data.duty.metrics.fleetDutyPercent)} format={(v) => `${number(v, 2)}%`} detail="active samples ÷ total samples, fleet-wide" accent={SUBSYS.Power.color} />
+          <KpiCard index={1} icon={Gauge} label="Fleet duty cycle" value={Number(data.duty.metrics.fleetDutyPercent)} format={(v) => `${number(v, 2)}%`} detail="active samples ÷ total samples, fleet-wide" accent={SUBSYS.Power.color} trend={data.duty.summary?.map((s) => s.dutyPercent)} trendLabels={data.duty.summary?.map((s) => s.satellite)} />
           <KpiCard index={2} icon={SunMedium} label="AOI + eclipse" value={Number(data.duty.metrics.aoiEclipseOverlapHours)} format={asHours} detail="observing while in eclipse, summed across the fleet" accent={SUBSYS.Power.color} />
           <KpiCard index={3} icon={Activity} label="Sample cadence" value={Number(data.duty.metrics.nominalStepSeconds)} format={(v) => `${number(v, 0)} s`} detail="median state step, per satellite" accent={SUBSYS.Power.color} />
         </div>
@@ -2701,17 +3135,17 @@ const K_CONTENT = {
           <DutyTimeline rows={data.duty.timeline} />
         </Panel>
         <Panel index={5} title="Active Payload Time per Satellite" sub={`Minutes of sensor power over ${data.mission.aoiRegionLabel || "Australia"}, per craft`} className="wide">
-          <SimpleBar rows={data.duty.summary.slice(0, 24).map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }))} x="satellite" y="activeMinutes" color={SUBSYS.Power.color} format={(v) => `${number(v, 1)} min`} />
+          <SimpleBar rows={data.duty.summary.slice(0, 24).map((r) => ({ ...r, satellite: shortSat(r.satellite, "S") }))} x="satellite" y="activeMinutes" color={SUBSYS.Power.color} format={(v) => `${number(v, 1)} min`} />
         </Panel>
       </>
     ),
   },
   k3: {
     requirement:
-      "48 crafts store the Australia data onboard and downlink it to Brisbane when passing through the GSN. This tracks the volume captured over the AOI and the contact opportunities to offload it.",
+      "48 crafts store the AOI data onboard and downlink it to the mission's ground station when passing through the GSN. This tracks the volume captured over the AOI and the contact opportunities to offload it.",
     methods: [
       { metric: "Observed time", meaning: "Same sensor-ON basis as K2 — this is the raw data being generated for onboard storage.", formula: "Σ ON duration, across all satellites" },
-      { metric: "RF / Optical contacts", meaning: "One row per continuous line-of-sight contact between a satellite and Brisbane GSN — each is a downlink opportunity.", formula: "row count in RF_Contacts.xlsx / Optical_Contacts.xlsx" },
+      { metric: "RF / Optical contacts", meaning: "One row per continuous line-of-sight contact between a satellite and the mission's GSN — each is a downlink opportunity.", formula: "row count in RF_Contacts.xlsx / Optical_Contacts.xlsx" },
       { metric: "Downlink windows", meaning: "Total pass count (RF + optical) available to offload stored data, across the full fleet.", formula: "RF rows + Optical rows" },
     ],
     render: (data) => (
@@ -2753,9 +3187,9 @@ const K_CONTENT = {
   },
   k4: {
     requirement:
-      "Brisbane GSN links to each craft and downloads the collected data for transmission. This view isolates the ground-station link budget: which stations carry the load and how long each pass lasts.",
+      "The mission's GSN links to each craft and downloads the collected data for transmission. This view isolates the ground-station link budget: which stations carry the load and how long each pass lasts.",
     methods: [
-      { metric: "RF / Optical contacts", meaning: "Pass counts and durations from the contact files — the downlink opportunities Brisbane GSN has with the fleet.", formula: "row count and Σ Duration(s) ÷ 60, per link type" },
+      { metric: "RF / Optical contacts", meaning: "Pass counts and durations from the contact files — the downlink opportunities the mission's GSN has with the fleet.", formula: "row count and Σ Duration(s) ÷ 60, per link type" },
       { metric: "Ground stations", meaning: "Distinct 'Ground Station' values seen across both contact files.", formula: "count(unique Ground Station)" },
       { metric: "Total link time", meaning: "Combined RF and optical contact minutes, summed across the fleet.", formula: "RF minutes + Optical minutes" },
     ],
@@ -2779,7 +3213,7 @@ const K_CONTENT = {
   },
   k5: {
     requirement:
-      "Brisbane GSN uploads any data the craft needs for its operations. Each downlink pass is also a command-uplink opportunity — this view schedules those contact windows.",
+      "The mission's GSN uploads any data the craft needs for its operations. Each downlink pass is also a command-uplink opportunity — this view schedules those contact windows.",
     methods: [
       { metric: "Uplink windows / time", meaning: "Every RF pass is treated as a bidirectional contact — the same window used for downlink is available for command uplink.", formula: "uplink windows = RF row count; uplink time = Σ RF Duration(s) ÷ 60" },
       { metric: "Crafts reachable", meaning: "Distinct satellites with at least one RF pass in the contact file — these are commandable during this window.", formula: "count(unique Satellite Name in RF_Contacts.xlsx)" },
@@ -2821,7 +3255,7 @@ const K_CONTENT = {
   },
   k6: {
     requirement:
-      "The 48 crafts must be 100% active while covering the Area between 110°E–160°E and 10°S–40°S. This is the core Australia coverage: which land cells are seen and by whom.",
+      "The 48 crafts must be 100% active while covering the mission's AOI rectangle. This is the core area coverage: which land cells are seen and by whom.",
     methods: COVERAGE_METHODS,
     render: (data) => (
       <>
@@ -2835,7 +3269,7 @@ const K_CONTENT = {
           <AustraliaCoverageMap cells={data.coverage.cells} outline={data.coverage.outline} tasmania={data.coverage.tasmania} aoi={data.coverage.aoi} percent={data.coverage.percent} />
         </Panel>
         <Panel index={5} title="Coverage Contribution" sub="Covered analysis-cell centers per satellite" className="wide">
-          <SimpleBar rows={data.coverage.contribution.slice(0, 24).map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }))} x="satellite" y="coveredCells" color={SUBSYS.Orbit.color} />
+          <SimpleBar rows={data.coverage.contribution.slice(0, 24).map((r) => ({ ...r, satellite: shortSat(r.satellite, "S") }))} x="satellite" y="coveredCells" color={SUBSYS.Orbit.color} />
         </Panel>
       </>
     ),
@@ -2852,7 +3286,7 @@ const K_CONTENT = {
       <>
         <div className="kpiGrid four">
           <KpiCard index={0} icon={SunMedium} label="Eclipse events" value={data.metrics.eclipseEvents} detail={`${asHours(data.metrics.eclipseHours)}, across the fleet`} accent={SUBSYS.Power.color} />
-          <KpiCard index={1} icon={Gauge} label="Fleet duty cycle" value={Number(data.duty.metrics.fleetDutyPercent)} format={(v) => `${number(v, 2)}%`} detail="power drawn for coverage, fleet average" accent={SUBSYS.Power.color} />
+          <KpiCard index={1} icon={Gauge} label="Fleet duty cycle" value={Number(data.duty.metrics.fleetDutyPercent)} format={(v) => `${number(v, 2)}%`} detail="power drawn for coverage, fleet average" accent={SUBSYS.Power.color} trend={data.duty.summary?.map((s) => s.dutyPercent)} trendLabels={data.duty.summary?.map((s) => s.satellite)} />
           <KpiCard index={2} icon={Zap} label="Idle share" value={100 - Number(data.duty.metrics.fleetDutyPercent)} format={(v) => `${number(v, 2)}%`} detail="charge / store window, fleet average" accent={SUBSYS.Power.color} />
           <KpiCard index={3} icon={Activity} label="ON time" value={Number(data.duty.metrics.fleetActiveHours)} format={asHours} detail="sensor active, summed across all satellites" accent={SUBSYS.Power.color} />
         </div>
@@ -2868,14 +3302,14 @@ const K_CONTENT = {
           </div>
         </Panel>
         <Panel index={5} title="Duty Cycle per Satellite" sub="Active coverage share — the rest is charge/store time, per craft">
-          <SimpleBar rows={data.duty.summary.slice(0, 20).map((r) => ({ ...r, satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S") }))} x="satellite" y="dutyPercent" color={SUBSYS.Power.color} format={(v) => `${number(v, 2)}%`} height={280} />
+          <SimpleBar rows={data.duty.summary.slice(0, 20).map((r) => ({ ...r, satellite: shortSat(r.satellite, "S") }))} x="satellite" y="dutyPercent" color={SUBSYS.Power.color} format={(v) => `${number(v, 2)}%`} height={280} />
         </Panel>
       </>
     ),
   },
   k8: {
     requirement:
-      "When the craft is outside the Area of cover, the OBC uses that time for onboard processing, making pre-processed data ready for downlink at Brisbane. Processing time is the complement of AOI dwell.",
+      "When the craft is outside the Area of cover, the OBC uses that time for onboard processing, making pre-processed data ready for downlink at the mission's ground station. Processing time is the complement of AOI dwell.",
     methods: [
       { metric: "Processing share", meaning: "The onboard computer is assumed free to pre-process the previous pass's data whenever a satellite's sub-point is outside the AOI rectangle. This is the inverse of the K1 'Fleet AOI dwell' figure, averaged across all 48 satellites.", formula: "100 − mean(AOI dwell %) across satellites" },
       { metric: "Observed time", meaning: "Same sensor-ON basis as K2/K3 — the raw data volume the OBC has to work through.", formula: "Σ ON duration, all satellites" },
@@ -2891,7 +3325,7 @@ const K_CONTENT = {
         </div>
         {state ? (
           <Panel index={4} title="Onboard Processing Window per Satellite" sub="Percent of the window outside the AOI — available for OBC processing" className="wide">
-            <SimpleBar rows={[...state.summary].sort((a, b) => (b.samples - b.aoiSamples) - (a.samples - a.aoiSamples)).slice(0, 24).map((r) => ({ satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S"), processing: 100 - r.aoiSharePercent }))} x="satellite" y="processing" color={SUBSYS.Data.color} format={(v) => `${number(v, 2)}%`} />
+            <SimpleBar rows={[...state.summary].sort((a, b) => (b.samples - b.aoiSamples) - (a.samples - a.aoiSamples)).slice(0, 24).map((r) => ({ satellite: shortSat(r.satellite, "S"), processing: 100 - r.aoiSharePercent }))} x="satellite" y="processing" color={SUBSYS.Data.color} format={(v) => `${number(v, 2)}%`} />
           </Panel>
         ) : null}
         <Panel index={5} title="Acquisition vs Processing Timeline" sub="Observing satellites (acquiring) — the inverse is processing" className="wide">
@@ -2904,7 +3338,7 @@ const K_CONTENT = {
     requirement:
       "The pre-processed package from the OBC is downlinked to the GSN. While sensors cover the Area, the OBC waits; once coverage stops it processes. This view maps the observation windows feeding the pipeline.",
     methods: [
-      { metric: "Downlink windows", meaning: "RF passes available to deliver the pre-processed data package to Brisbane GSN.", formula: "row count in RF_Contacts.xlsx, all satellites" },
+      { metric: "Downlink windows", meaning: "RF passes available to deliver the pre-processed data package to the mission's GSN.", formula: "row count in RF_Contacts.xlsx, all satellites" },
       { metric: "Summed / max simultaneous observation", meaning: "Same basis as K6/Coverage — total and peak concurrent observing satellites, which sets the pipeline's input load.", formula: "Σ per-satellite observation time; max(concurrent observing count)" },
       { metric: "Analysis duration", meaning: "The full simulated window this whole pipeline view is measured over.", formula: "max(Timestamp) − min(Timestamp), shared grid" },
     ],
@@ -2973,7 +3407,7 @@ const K_CONTENT = {
                 orbit was measured when nothing was.
               </div>
             ) : (
-              <SimpleBar rows={[...state.summary].sort((a, b) => b.meanEccentricity - a.meanEccentricity).slice(0, 24).map((r) => ({ satellite: r.satellite.replace(/^.*_(?=\d+$)/, "S"), ecc: r.meanEccentricity }))} x="satellite" y="ecc" color={SUBSYS.Upload.color} format={(v) => number(v, 6)} />
+              <SimpleBar rows={[...state.summary].sort((a, b) => b.meanEccentricity - a.meanEccentricity).slice(0, 24).map((r) => ({ satellite: shortSat(r.satellite, "S"), ecc: r.meanEccentricity }))} x="satellite" y="ecc" color={SUBSYS.Upload.color} format={(v) => number(v, 6)} />
             )}
           </Panel>
         ) : null}
@@ -3108,7 +3542,7 @@ function WelcomeScreen({ missions, setMissionId, onEnter }) {
           </p>
           <p className="welcomeTagline">Mission Operations &amp; Constellation Analysis</p>
           <p className="welcomeLede">
-            Converts GMAT orbital telemetry into mission-level operational insight — constellation
+            Converts real orbital telemetry into mission-level operational insight — constellation
             state, ground-contact windows, coverage and payload duty cycle — for the ASC_074 Earth
             observation constellation. Select a configuration to open its live dashboard.
           </p>
@@ -3326,6 +3760,12 @@ function Dashboard() {
 
   const { data, state, loading, error, refreshing, refresh, retry } = useDashboard(missionId);
   const glossaryMap = useGlossaryMapFetch();
+  // Also fetched separately inside DataView's own FullReportPanel -- this
+  // duplicate is intentional and cheap (a small, fast endpoint) rather than
+  // lifting that state, so the top-of-dashboard report launcher (which
+  // renders in the Header, outside DataView) has its own quality data
+  // regardless of which section is currently open.
+  const quality = useDataQuality(missionId);
 
   React.useEffect(() => {
     const onHash = () => setActive(window.location.hash.slice(1) || "overview");
@@ -3396,13 +3836,14 @@ function Dashboard() {
 
   let view;
   if (active === "overview") view = <Overview data={data} state={state} />;
-  else if (active === "explorer") view = <StateExplorer state={state} mission={data.mission} stateLoading={loading} />;
+  else if (active === "explorer") view = <StateExplorer state={state} mission={data.mission} stateLoading={loading} coverage={data.coverage} />;
   else if (active === "coverage") view = <CoverageView data={data} />;
   else if (active === "imaging") view = <PayloadImagingView data={data} state={state} />;
   else if (active === "global") view = <GlobalCoverageView data={data} state={state} />;
   else if (active === "data") view = <DataView data={data} missionId={missionId} missions={missions} glossaryMap={glossaryMap} />;
   else if (active === "ic-catalog") view = <ImageCatalogView missionId={missionId} />;
   else if (active === "ic-gallery") view = <ImageGalleryView missionId={missionId} />;
+  else if (active === "ic-location") view = <GlobalLocationExplorer />;
   else if (active === "summary") view = <ConstellationSummaryView data={data} />;
   else if (active === "revisit") view = <RevisitAnalyticsView data={data} />;
   else if (active === "gap-analysis") view = <CoverageGapView data={data} />;
@@ -3433,6 +3874,8 @@ function Dashboard() {
             missions={missions}
             missionId={missionId}
             setMissionId={setMissionId}
+            glossaryMap={glossaryMap}
+            quality={quality}
           />
           <Ticker data={data} />
           {error ? <div className="bannerError">{error}</div> : null}
