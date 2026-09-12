@@ -757,9 +757,31 @@ function Starfield() {
       buildStars();
     }
 
+    // The canvas sits behind every panel/card in the app shell, nearly all of
+    // which use `backdrop-filter: blur()` for the frosted-glass look -- and
+    // backdrop-filter must resample whatever is currently behind an element,
+    // so every pixel this canvas changes forces the browser to recompute the
+    // blur for every one of those panels on screen, not just repaint this
+    // canvas. At a full 60fps that repeats 60 times a second for the entire
+    // time the tab is open, on every view, which is a heavy, easy-to-miss
+    // cost for a purely decorative background. A slow ambient drift doesn't
+    // read as different at a lower rate, so redraws (not the rAF scheduling
+    // itself, which stays cheap) are capped well below 60fps.
+    const FRAME_INTERVAL_MS = 1000 / 15;
+    let sinceDraw = 0;
+
     function draw(ts) {
-      const dt = lastTs ? Math.min(ts - lastTs, 50) : 16;
+      const frameDt = lastTs ? ts - lastTs : 16;
       lastTs = ts;
+      if (!reduceMotion) {
+        sinceDraw += frameDt;
+        if (sinceDraw < FRAME_INTERVAL_MS) {
+          if (running) raf = requestAnimationFrame(draw);
+          return;
+        }
+      }
+      const dt = Math.min(sinceDraw || frameDt, 200);
+      sinceDraw = 0;
       ctx.clearRect(0, 0, width, height);
 
       for (const s of stars) {
