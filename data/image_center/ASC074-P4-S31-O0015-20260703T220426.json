@@ -69,7 +69,7 @@
   "cloudCoverPercent": 0.17365367779861474,
   "generatedTimestamp": "2026-09-11T15:05:16.893607+00:00",
   "generationStatus": "Generated",
-  "downloadStatus": "Not Downloaded",
+  "downloadStatus": "Downloaded",
   "sceneId": "ASC074-P4-S31-O0015-20260703T220426",
   "acquisition": {
     "satellite": "ASC_074_31",
@@ -390,5 +390,6 @@
       "check": "coverage",
       "detail": "35.2% of the frame has no source imagery"
     }
-  ]
+  ],
+  "lastDownloadedTimestamp": "2026-09-12T11:46:23.605157+00:00"
 }

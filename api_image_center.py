@@ -1076,7 +1076,13 @@ def geometry(image_id):
     state = _state(mission_id).copy()
     state["Timestamp"] = pd.to_datetime(state["Timestamp"], errors="coerce")
     sat = state[state["Satellite Name"].astype(str) == entry["satellite"]].sort_values("Timestamp")
-    epoch = pd.to_datetime(entry["captureEpochUtc"])
+    # captureEpochUtc now carries an explicit +00:00 offset (see time_utils.utc_iso),
+    # so parsing it yields a tz-aware Timestamp -- but state["Timestamp"] above is
+    # tz-naive (GMAT's raw report has no offset; naive-but-UTC is this app's
+    # established convention). Comparing aware vs. naive raises a TypeError, so
+    # drop the tz here rather than attach one above: the wall-clock value is
+    # already UTC either way.
+    epoch = pd.to_datetime(entry["captureEpochUtc"]).tz_localize(None)
     window = sat[(sat["Timestamp"] >= epoch - pd.Timedelta(minutes=25))
                  & (sat["Timestamp"] <= epoch + pd.Timedelta(minutes=25))]
 
