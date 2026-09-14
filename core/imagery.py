@@ -70,6 +70,23 @@ GDAL_HTTP_OPTS = {
     # time_read_only.py). Neither option changes which bytes are read.
     "CPL_VSIL_CURL_CHUNK_SIZE": "1048576",
     "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
+    # Nothing above bounds a single range request: a stalled TCP connection to
+    # S3 (no data at all, not just a slow one) previously had no way to fail
+    # and retry -- it just sat there, and a generation that looked "stuck" on
+    # one tile for minutes had no way to tell a live-but-slow transfer apart
+    # from a dead one, or recover if it really was dead. GDAL_HTTP_TIMEOUT is
+    # deliberately NOT set here: it caps the whole request regardless of
+    # progress, which would abort a transfer that is genuinely still moving
+    # bytes, just slowly (observed directly: single bands here routinely take
+    # 60-130s on a real read). LOW_SPEED_TIME/LOW_SPEED_LIMIT only fires when
+    # throughput drops near zero and STAYS there -- a real stall, not a slow
+    # network -- and MAX_RETRY/RETRY_DELAY gives a stalled or transiently
+    # failed request a few chances to recover before the generation fails.
+    "GDAL_HTTP_CONNECTTIMEOUT": 15,
+    "GDAL_HTTP_LOW_SPEED_TIME": 30,
+    "GDAL_HTTP_LOW_SPEED_LIMIT": 1,
+    "GDAL_HTTP_MAX_RETRY": 3,
+    "GDAL_HTTP_RETRY_DELAY": 2,
 }
 
 
