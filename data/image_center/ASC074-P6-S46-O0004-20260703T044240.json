@@ -243,14 +243,14 @@
     "issues": []
   },
   "reference": {
-    "source": "sentinel-2-l2a",
+    "source": "Satellite surface reflectance archive",
     "sourceSceneId": "S2C_55JGM_20250705_0_L2A",
     "sourceDatetime": "2025-07-05T00:14:22.081000+00:00",
     "sourcePlatform": "sentinel-2c",
     "nativeGsdM": 10.0,
     "deliveredWidthPx": 2048,
     "deliveredHeightPx": 2048,
-    "provider": "pluggable: current implementation reuses the Sentinel-2 L2A mosaic already fetched for this observation's footprint; a different archive or a manually supplied reference image could be substituted here without changing any caller",
+    "provider": "pluggable: current implementation reuses the source archive mosaic already fetched for this observation's footprint; a different archive or a manually supplied reference image could be substituted here without changing any caller",
     "note": "This is real Earth imagery for the observation's true coordinates, rendered WITHOUT the ASC_074 sensor simulation -- it is a reference scene, not an ASC_074 acquisition and not a measurement of ASC_074's performance. Its acquisition date (sourceDatetime) differs from the product's simulated acquisition time by design; the two are not the same observation, only the same ground location."
   },
   "geospatialValidation": {
@@ -315,7 +315,7 @@
     }
   },
   "provenance": {
-    "sourceCollection": "sentinel-2-l2a",
+    "sourceCollection": "Satellite surface reflectance archive",
     "sourceSceneId": "S2C_55JGM_20250705_0_L2A",
     "sourceDatetime": "2025-07-05T00:14:22.081000+00:00",
     "sourceCloudCoverPercent": 1.7e-05,
@@ -488,7 +488,7 @@
     ],
     "mosaicSceneCount": 5,
     "validDataFraction": 1.0,
-    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+    "note": "Synthetic product. Surface reflectance is real satellite imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see the imagery source module."
   },
   "files": {
     "geotiff": "ASC074-P6-S46-O0004-20260703T044240.tif",

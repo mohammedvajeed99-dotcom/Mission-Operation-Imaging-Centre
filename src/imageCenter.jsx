@@ -101,7 +101,7 @@ function formatDuration(seconds) {
 
 const STAGE_LABELS = {
   starting: "Starting…",
-  searching: "Searching the Sentinel-2 archive…",
+  searching: "Searching the source imagery archive…",
   reading: "Reading source imagery…",
   simulating: "Running the sensor simulation…",
   validating: "Assessing quality…",
@@ -437,7 +437,7 @@ function ImageViewer({ src, alt }) {
         draggable={false}
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
       />
-      <span className="icSimBadge" title="Real Sentinel-2 surface reflectance, composited with a simulated ASC_074 sensor pass — not an unmodified archival scene">
+      <span className="icSimBadge" title="Real satellite surface reflectance, composited with a simulated ASC_074 sensor pass — not an unmodified archival scene">
         SIMULATED PRODUCT
       </span>
       <div className="icViewerTools">
@@ -556,7 +556,7 @@ function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged 
       {busy ? (
         <GenerationStatusLine
           progress={progress}
-          fallback="Retrieving Sentinel-2 source imagery and simulating the pushbroom sensor…"
+          fallback="Retrieving source imagery and simulating the pushbroom sensor…"
         />
       ) : null}
 
@@ -602,7 +602,7 @@ function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged 
           <Row label="District" value={detail.district} tag="derived" />
           <Row label="City / Town" value={detail.city} tag="derived" />
           {detail.district || detail.city ? (
-            <p className="icGeoAttribution">District/City via OpenStreetMap (Nominatim), © OpenStreetMap contributors</p>
+            <p className="icGeoAttribution">District/City from the mission's location reference dataset</p>
           ) : null}
 
           <h4>Quality</h4>
@@ -635,7 +635,7 @@ function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged 
               {spectral ? (
                 <Row
                   label="Spectral bands"
-                  value="Sentinel-2 MSI proxy (not ASC_074 spec)"
+                  value="Source-sensor proxy (not ASC_074 spec)"
                   tag="assumed"
                   infoKey="spectral_band_proxy"
                 />
@@ -655,7 +655,7 @@ function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged 
           <h4>Data provenance</h4>
           <div className="icProvGrid">
             <div><span>Simulated imagery</span><p>Sensor response, acquisition timing and geometry are modelled from mission telemetry and the mission camera configuration.</p></div>
-            <div><span>Real source reflectance</span><p>{prov.sourceCollection || "Sentinel-2 L2A"}{prov.sourceDatetime ? ` · acquired ${String(prov.sourceDatetime).slice(0, 10)}` : ""}{prov.mosaicSceneCount ? ` · ${prov.mosaicSceneCount} granule(s) mosaicked` : ""}</p></div>
+            <div><span>Real source reflectance</span><p>{prov.sourceCollection || "Satellite surface reflectance archive"}{prov.sourceDatetime ? ` · acquired ${String(prov.sourceDatetime).slice(0, 10)}` : ""}{prov.mosaicSceneCount ? ` · ${prov.mosaicSceneCount} granule(s) mosaicked` : ""}</p></div>
             <div><span>Assumed parameters</span><p>Integration time, read noise, full well, MTF sigma and the atmospheric model are representative values, not mission-configured data.</p></div>
             <div><span>Validated orbital data</span><p>Sub-satellite position, altitude, orbit and pass number come from the mission's state report.</p></div>
           </div>
@@ -741,13 +741,13 @@ function GeospatialValidationPanel({ imageId, missionId, detail, coordVal, refMe
       </div>
       <p className="icGeoCompareNote">
         Same footprint by construction: both images are rendered from the identical windowed read of the
-        real Sentinel-2 scene, so geospatial alignment is guaranteed rather than separately measured.
+        real source scene, so geospatial alignment is guaranteed rather than separately measured.
       </p>
 
       <div className="icFacts">
         {refMeta ? (
           <>
-            <Row label="Reference source" value={refMeta.source || "Sentinel-2 L2A"} tag="measured" />
+            <Row label="Reference source" value={refMeta.source || "Satellite surface reflectance archive"} tag="measured" />
             <Row label="Reference acquisition" value={refMeta.sourceDatetime ? String(refMeta.sourceDatetime).slice(0, 19).replace("T", " ") + " UTC" : "—"} tag="measured" />
             <Row label="Reference resolution" value={refMeta.deliveredWidthPx ? `${refMeta.deliveredWidthPx} × ${refMeta.deliveredHeightPx} px` : "—"} tag="derived" />
           </>
@@ -789,7 +789,7 @@ function GeospatialValidationPanel({ imageId, missionId, detail, coordVal, refMe
         </ul>
       </div>
 
-      <span className="icSimBadge icSimBadgeStatic" title="Real Sentinel-2 surface reflectance, composited with a simulated ASC_074 sensor pass — not an unmodified archival scene">
+      <span className="icSimBadge icSimBadgeStatic" title="Real satellite surface reflectance, composited with a simulated ASC_074 sensor pass — not an unmodified archival scene">
         SIMULATED PRODUCT — not real imagery captured by ASC_074
       </span>
     </div>
@@ -1230,7 +1230,7 @@ export function ImageCatalogView({ missionId }) {
           {batch.running ? (
             <GenerationStatusLine
               progress={progress}
-              fallback={`${batch.current} — retrieving Sentinel-2 source imagery and simulating the sensor pass.`}
+              fallback={`${batch.current} — retrieving source imagery and simulating the sensor pass.`}
             />
           ) : null}
 
@@ -1256,7 +1256,7 @@ export function ImageCatalogView({ missionId }) {
           </div>
           <GenerationStatusLine
             progress={progress}
-            fallback="Retrieving Sentinel-2 source imagery and simulating the sensor pass…"
+            fallback="Retrieving source imagery and simulating the sensor pass…"
           />
         </div>
       ) : null}
@@ -1398,7 +1398,7 @@ export function ImageGalleryView({ missionId }) {
             <article className="icCard" key={im.imageId}>
               <button className="icCardImg" onClick={() => setSelected(im.imageId)}>
                 <img src={withAccess(icUrl(`/image/${im.imageId}/preview?size=thumb`, missionId))} alt={im.imageId} loading="lazy" />
-                <span className="icSimBadge icSimBadgeSm" title="Real Sentinel-2 reflectance, composited with a simulated ASC_074 sensor pass">SIM</span>
+                <span className="icSimBadge icSimBadgeSm" title="Real satellite reflectance, composited with a simulated ASC_074 sensor pass">SIM</span>
               </button>
               <div className="icCardBody">
                 <h4>{im.satellite}</h4>

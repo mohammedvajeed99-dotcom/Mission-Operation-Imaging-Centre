@@ -259,14 +259,14 @@
     "issues": []
   },
   "reference": {
-    "source": "sentinel-2-l2a",
+    "source": "Satellite surface reflectance archive",
     "sourceSceneId": "S2A_43NGJ_20250102_0_L2A",
     "sourceDatetime": "2025-01-02T05:26:46.986000+00:00",
     "sourcePlatform": "sentinel-2a",
     "nativeGsdM": 10.0,
     "deliveredWidthPx": 2048,
     "deliveredHeightPx": 2048,
-    "provider": "pluggable: current implementation reuses the Sentinel-2 L2A mosaic already fetched for this observation's footprint; a different archive or a manually supplied reference image could be substituted here without changing any caller",
+    "provider": "pluggable: current implementation reuses the source archive mosaic already fetched for this observation's footprint; a different archive or a manually supplied reference image could be substituted here without changing any caller",
     "note": "This is real Earth imagery for the observation's true coordinates, rendered WITHOUT the ASC_074 sensor simulation -- it is a reference scene, not an ASC_074 acquisition and not a measurement of ASC_074's performance. Its acquisition date (sourceDatetime) differs from the product's simulated acquisition time by design; the two are not the same observation, only the same ground location."
   },
   "geospatialValidation": {
@@ -357,7 +357,7 @@
     "disclosure": "ASC_074's own spectral response (center wavelength, bandwidth, quantum efficiency) has not been specified anywhere in this project. The values here are Sentinel-2's own published MSI band specification, used as a PROXY because the pipeline reads real Sentinel-2 pixel data for each of these band names. This describes the real characteristics of the source data, not a measurement or specification of ASC_074's actual sensor -- it does not demonstrate that ASC_074 has an identical spectral response, only that its simulated bands are currently modelled as if it did."
   },
   "provenance": {
-    "sourceCollection": "sentinel-2-l2a",
+    "sourceCollection": "Satellite surface reflectance archive",
     "sourceSceneId": "S2A_43NGJ_20250102_0_L2A",
     "sourceDatetime": "2025-01-02T05:26:46.986000+00:00",
     "sourceCloudCoverPercent": 10.402344,
@@ -606,7 +606,7 @@
     "validDataFraction": 1.0,
     "seamFeathered": true,
     "seamFeatherPx": 12,
-    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+    "note": "Synthetic product. Surface reflectance is real satellite imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see the imagery source module."
   },
   "files": {
     "geotiff": "ASC080-P4-S13-O0002-20260101T000215.tif",

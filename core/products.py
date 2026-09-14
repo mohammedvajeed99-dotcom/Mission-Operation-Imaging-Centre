@@ -100,7 +100,7 @@ def generate_product(
 
     coordinate_validation = validate_wgs84(scene["lat"], scene["lon"])
 
-    report("searching", "Searching the Sentinel-2 archive for this footprint")
+    report("searching", "Searching the source imagery archive for this footprint")
     items = find_source_scenes(scene["bbox"], scene["timestamp"], max_cloud=max_cloud)
 
     def on_mosaic_progress(index, total, coverage):
@@ -211,12 +211,12 @@ def generate_product(
         "provenance": {
             **provenance,
             "note": (
-                "Synthetic product. Surface reflectance is real Sentinel-2 L2A "
+                "Synthetic product. Surface reflectance is real satellite "
                 "imagery acquired at sourceDatetime; the acquisition geometry, "
                 "timing and sensor response are simulated from real orbital "
                 "telemetry and the mission camera configuration. "
                 "simulatedTimestampUtc and sourceDatetime are different by "
-                "design -- see core/imagery.py."
+                "design -- see the imagery source module."
             ),
         },
         "files": {

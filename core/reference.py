@@ -47,14 +47,14 @@ def reference_provenance(provenance, delivered_width_px, delivered_height_px):
     can never drift from what was actually read.
     """
     return {
-        "source": provenance.get("sourceCollection", "sentinel-2-l2a"),
+        "source": provenance.get("sourceCollection", "Satellite surface reflectance archive"),
         "sourceSceneId": provenance.get("sourceSceneId"),
         "sourceDatetime": provenance.get("sourceDatetime"),
         "sourcePlatform": provenance.get("sourcePlatform"),
         "nativeGsdM": provenance.get("sourceNativeGsdM"),
         "deliveredWidthPx": delivered_width_px,
         "deliveredHeightPx": delivered_height_px,
-        "provider": "pluggable: current implementation reuses the Sentinel-2 L2A "
+        "provider": "pluggable: current implementation reuses the source archive "
                     "mosaic already fetched for this observation's footprint; a "
                     "different archive or a manually supplied reference image "
                     "could be substituted here without changing any caller",

@@ -256,7 +256,7 @@ GLOSSARY = [
         "name": "Cloud Cover %",
         "definition": "Share of the observation footprint estimated to be obscured by cloud.",
         "unit": "%",
-        "source": "Sentinel-2 scene classification layer where available, otherwise a spectral test on the imagery",
+        "source": "The source archive's scene classification layer where available, otherwise a spectral test on the imagery",
         "calculation": "SCL cloud/shadow/cirrus classes, or a brightness-plus-spectral-flatness test; the method used is always reported with the value",
         "significance": "Cloud is the main reason an optical acquisition is unusable. The spectral fallback can over-report over bright arid ground, which matters for any mission's AOI with arid or desert terrain (e.g. the Australian outback or Rajasthan).",
     },
@@ -356,7 +356,7 @@ GLOSSARY = [
         "definition": "Whether the simulated observation and the real Earth reference image cover the exact same ground area, in the same orientation and scale.",
         "unit": "pass/fail",
         "source": "core.products.generate_product",
-        "calculation": "Both images are rendered from one identical windowed read (same bbox, same output raster shape) of the real Sentinel-2 mosaic -- alignment is guaranteed by that construction, not independently measured or registered.",
+        "calculation": "Both images are rendered from one identical windowed read (same bbox, same output raster shape) of the real source mosaic -- alignment is guaranteed by that construction, not independently measured or registered.",
         "significance": "Confirms there is no separate registration step that could silently misalign the two images -- they are geometrically the same frame by design.",
     },
     {
@@ -389,11 +389,11 @@ GLOSSARY = [
     {
         "key": "spectral_band_proxy",
         "name": "Spectral Band Proxy",
-        "definition": "The center wavelength and bandwidth shown for each band (Red/Green/Blue/Near Infrared) are Sentinel-2's own published MSI specification, not a specification of ASC_074's own sensor.",
+        "definition": "The center wavelength and bandwidth shown for each band (Red/Green/Blue/Near Infrared) are the source sensor's own published band specification, not a specification of ASC_074's own sensor.",
         "unit": "nm",
         "source": "core.spectral.SPECTRAL_BANDS",
-        "calculation": "ASC_074's spectral response has never been specified in any mission file -- only the band names exist. The pipeline reads real Sentinel-2 L2A pixel data for each named band (Blue->B02, Green->B03, Red->B04, Near Infrared->B08), so Sentinel-2's real, published wavelength and bandwidth numbers are reported here as an ASSUMED proxy describing what data is actually feeding the pipeline.",
-        "significance": "Makes explicit that using this data does not demonstrate ASC_074 has an identical spectral response to Sentinel-2 -- only that its simulated bands are currently modelled as if it did.",
+        "calculation": "ASC_074's spectral response has never been specified in any mission file -- only the band names exist. The pipeline reads real source-archive pixel data for each named band (Blue, Green, Red, Near Infrared), so that archive's real, published wavelength and bandwidth numbers are reported here as an ASSUMED proxy describing what data is actually feeding the pipeline.",
+        "significance": "Makes explicit that using this data does not demonstrate ASC_074 has an identical spectral response to the source sensor -- only that its simulated bands are currently modelled as if it did.",
     },
     {
         "key": "ground_swath",

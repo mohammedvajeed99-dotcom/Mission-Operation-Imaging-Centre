@@ -27,6 +27,11 @@ from core.time_utils import utc_iso
 STAC_URL = "https://earth-search.aws.element84.com/v1"
 COLLECTION = "sentinel-2-l2a"
 
+# What the UI shows for "where did this pixel data come from" -- deliberately
+# generic rather than COLLECTION itself, which stays the real STAC collection
+# id used for the actual query above and must not change.
+SOURCE_LABEL = "Satellite surface reflectance archive"
+
 # Sentinel-2 L2A asset keys for the bands the ASC074 camera models.
 # The camera's four bands map onto S2 B02/B03/B04/B08 at 10 m native GSD.
 # This is a spectral proxy, not a demonstrated match to ASC_074's own
@@ -150,7 +155,7 @@ def find_source_scenes(bbox, sim_timestamp, max_cloud=20.0, search_years=3,
     items = _search_items(tuple(bbox), float(max_cloud), int(search_years), int(limit))
     if not items:
         raise ImageryUnavailable(
-            f"No Sentinel-2 L2A scene under {max_cloud}% cloud covers bbox {bbox}"
+            f"No source scene under {max_cloud}% cloud covers bbox {bbox}"
         )
 
     target_doy = sim_timestamp.timetuple().tm_yday
@@ -250,7 +255,7 @@ def read_footprint(item, bbox, out_shape, bands=("Red", "Green", "Blue", "Near I
     used = list(bands)
     array = np.stack(planes)
     provenance = {
-        "sourceCollection": COLLECTION,
+        "sourceCollection": SOURCE_LABEL,
         "sourceSceneId": item.id,
         "sourceDatetime": utc_iso(item.datetime),
         "sourceCloudCoverPercent": float(item.properties.get("eo:cloud_cover", float("nan"))),
@@ -515,7 +520,7 @@ def read_footprint_mosaic(items, bbox, out_shape, bands=("Red", "Green", "Blue",
     coverage = float(np.isfinite(mosaic).mean())
     primary = contributors[0] if contributors else {}
     provenance = {
-        "sourceCollection": COLLECTION,
+        "sourceCollection": SOURCE_LABEL,
         "sourceSceneId": primary.get("sceneId"),
         "sourceDatetime": primary.get("datetime"),
         "sourceCloudCoverPercent": primary.get("cloudCoverPercent"),

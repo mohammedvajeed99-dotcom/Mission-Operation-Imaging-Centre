@@ -914,7 +914,7 @@ def download(image_id, kind):
                 "error": "Full-resolution GeoTIFF is not available on this deployment.",
                 "reason": "Previews and metadata are shipped; the ~16 MB GeoTIFFs are not.",
                 "remedy": "Regenerate this observation to rebuild the GeoTIFF from the "
-                          "Sentinel-2 archive, or run the dashboard locally where the "
+                          "source imagery archive, or run the dashboard locally where the "
                           "original product is stored.",
                 "available": _registry(mission_id).assets(image_id),
             }), 409

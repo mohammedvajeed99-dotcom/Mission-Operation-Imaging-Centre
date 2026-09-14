@@ -222,7 +222,7 @@
     "caveat": "Index-threshold classification, not a trained classifier. Thresholds are standard published values and are not tuned to Australian land cover specifically."
   },
   "provenance": {
-    "sourceCollection": "sentinel-2-l2a",
+    "sourceCollection": "Satellite surface reflectance archive",
     "sourceSceneId": "S2A_49JHN_20240702_0_L2A",
     "sourceDatetime": "2024-07-02T02:34:46.268000+00:00",
     "sourceCloudCoverPercent": 0.005826,
@@ -395,7 +395,7 @@
     ],
     "mosaicSceneCount": 5,
     "validDataFraction": 1.0,
-    "note": "Synthetic product. Surface reflectance is real Sentinel-2 L2A imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see core/imagery.py."
+    "note": "Synthetic product. Surface reflectance is real satellite imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see the imagery source module."
   },
   "files": {
     "geotiff": "ASC074-P2-S16-O0001-20260703T000248.tif",
