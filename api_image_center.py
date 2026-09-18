@@ -631,12 +631,24 @@ def image_detail(image_id):
     mission_id = _mission_id_from_request()
     df = _catalog_live(mission_id)
     row = df[df["imageId"] == image_id]
-    if row.empty:
-        return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
-
-    detail = json.loads(row.iloc[[0]].to_json(orient="records"))[0]
-    product = _registry(mission_id).load(image_id)
-    if product:
+    if not row.empty:
+        detail = json.loads(row.iloc[[0]].to_json(orient="records"))[0]
+        product = _registry(mission_id).load(image_id)
+        if product:
+            detail["product"] = product
+    else:
+        # The opportunity catalog is recomputed from telemetry + camera model
+        # on every cold start and can drift after a generation-logic change
+        # (orbit numbering, scene-splitting distance, etc.), so an id that
+        # doesn't appear in today's catalog may still be a real, generated
+        # product from before that change -- its files are still on disk and
+        # its registry record already carries every field a catalog row
+        # would (it started as one), so fall back to that rather than
+        # 404ing on a product a user can otherwise still see and download.
+        product = _registry(mission_id).load(image_id)
+        if not product:
+            return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
+        detail = dict(product)
         detail["product"] = product
     # Which product files this deployment can actually serve, so the download
     # menu offers only what exists instead of failing on click.
@@ -1085,9 +1097,15 @@ def geometry(image_id):
     mission_id = _mission_id_from_request()
     df = _catalog(mission_id)
     row = df[df["imageId"] == image_id]
-    if row.empty:
-        return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
-    entry = row.iloc[0].to_dict()
+    if not row.empty:
+        entry = row.iloc[0].to_dict()
+    else:
+        # Same fallback as image_detail: an id absent from today's recomputed
+        # catalog can still be a real, previously generated product whose
+        # registry record has every field this endpoint needs.
+        entry = _registry(mission_id).load(image_id)
+        if not entry:
+            return jsonify({"ok": False, "error": f"Unknown image ID {image_id}"}), 404
 
     # Ground track segment around the capture, for context on the map.
     state = _state(mission_id).copy()

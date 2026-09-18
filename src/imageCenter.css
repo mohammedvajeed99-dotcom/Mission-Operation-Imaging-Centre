@@ -515,7 +515,13 @@
 .icError {
   color: #fb5c73; background: rgba(251, 92, 115, .1); border: 1px solid rgba(251, 92, 115, .28);
   border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
+.icErrorClose {
+  background: none; border: none; color: inherit; opacity: 0.7; cursor: pointer;
+  padding: 2px; line-height: 0; flex: none;
+}
+.icErrorClose:hover { opacity: 1; }
 .icNotice {
   color: #fbbf24; background: rgba(251, 191, 36, .09); border: 1px solid rgba(251, 191, 36, .26);
   border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 0;

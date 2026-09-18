@@ -499,7 +499,14 @@ function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged 
     }
   };
 
-  if (error && !detail) return <div className="icDetail"><p className="icError">{error}</p></div>;
+  if (error && !detail) return (
+    <div className="icDetail">
+      <p className="icError">
+        <span>{error}</span>
+        {onClose ? <button className="icErrorClose" onClick={onClose} aria-label="Close"><X size={13} /></button> : null}
+      </p>
+    </div>
+  );
   if (!detail) return <div className="icDetail"><p className="icMuted">Loading image record…</p></div>;
 
   const generated = detail.generationStatus === "Generated";
@@ -552,7 +559,12 @@ function ImageDetail({ imageId, missionId, maxPixels = 2048, onClose, onChanged 
         </div>
       </div>
 
-      {error ? <p className="icError">{error}</p> : null}
+      {error ? (
+        <p className="icError">
+          <span>{error}</span>
+          <button className="icErrorClose" onClick={() => setError("")} aria-label="Close"><X size={13} /></button>
+        </p>
+      ) : null}
       {busy ? (
         <GenerationStatusLine
           progress={progress}
@@ -1193,7 +1205,12 @@ export function ImageCatalogView({ missionId }) {
         </div>
       ) : null}
 
-      {error ? <p className="icError">{error}</p> : null}
+      {error ? (
+        <p className="icError">
+          <span>{error}</span>
+          <button className="icErrorClose" onClick={() => setError("")} aria-label="Close"><X size={13} /></button>
+        </p>
+      ) : null}
 
       {batch ? (
         <div className="icBatch">
@@ -1382,7 +1399,12 @@ export function ImageGalleryView({ missionId }) {
         <button className="icBtn icBtnGhost" onClick={load}><RefreshCw size={14} /> Refresh</button>
       </div>
 
-      {error ? <p className="icError">{error}</p> : null}
+      {error ? (
+        <p className="icError">
+          <span>{error}</span>
+          <button className="icErrorClose" onClick={() => setError("")} aria-label="Close"><X size={13} /></button>
+        </p>
+      ) : null}
 
       {loading ? (
         <p className="icMuted">Loading gallery…</p>
