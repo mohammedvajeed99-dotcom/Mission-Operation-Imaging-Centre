@@ -8,7 +8,7 @@
   "orbitPass": 1,
   "captureDate": "2026-07-03",
   "captureTimeUtc": "00:51:39",
-  "captureEpochUtc": "2026-07-03T00:51:39.440789473",
+  "captureEpochUtc": "2026-07-03T00:51:39.440789473+00:00",
   "missionElapsedTime": "000:00:51:39",
   "missionElapsedSeconds": 3099.440789,
   "latitude": -11.789730251024908,
@@ -47,6 +47,7 @@
   "footprintAreaKm2": 4749.178775510203,
   "swathWidthKm": 68.91428571428571,
   "gsdM": 8.412388392857142,
+  "captureDurationSec": 10.26,
   "estimatedResolution": "8192 x 8192 px",
   "widthPx": 8192,
   "heightPx": 8192,
@@ -59,16 +60,20 @@
   "aoiName": "Northern Territory, Australia",
   "australianState": "Northern Territory",
   "missionAoi": "Brisbane, Australia",
+  "district": "East Arnhem",
+  "city": "Nhulunbuy",
+  "country": "Australia",
+  "locationDisplay": "Nhulunbuy, East Arnhem",
   "fromInterpolatedFix": true,
-  "imageQualityScore": 85.3,
-  "cloudCoverPercent": 2.823014037716184,
-  "generatedTimestamp": "2026-08-23T07:59:18.021317+00:00",
+  "imageQualityScore": 74.6,
+  "cloudCoverPercent": 2.5254818456528207,
+  "generatedTimestamp": "2026-09-18T21:06:06.762800+00:00",
   "generationStatus": "Generated",
-  "downloadStatus": "Downloaded",
+  "downloadStatus": "Not Downloaded",
   "sceneId": "ASC074-P1-S03-O0002-20260703T005139",
   "acquisition": {
     "satellite": "ASC_074C",
-    "simulatedTimestampUtc": "2026-07-03T00:51:39.440789473",
+    "simulatedTimestampUtc": "2026-07-03T00:51:39.440789473+00:00",
     "orbitNumber": 2,
     "subSatelliteLat": -11.789730251024908,
     "subSatelliteLon": 136.24093329124452,
@@ -110,7 +115,8 @@
     ],
     "crs": "EPSG:4326",
     "widthPx": 512,
-    "heightPx": 512
+    "heightPx": 512,
+    "heightBasis": "This product's heightPx is computed from this specific observation's real along-track pass distance divided by GSD (core.image_center.build_catalog), then capped for delivery -- it is not the camera model's fixed nominal frame-length constant (DEFAULT_CAMERA['Image Height (px)']), which is used only for fleet-wide scene-count estimates, not for sizing any individual product."
   },
   "sensor": {
     "mtfSigmaPx": 0.6,
@@ -120,11 +126,44 @@
     "fullWellElectrons": 22000.0,
     "bitDepth": 12,
     "noiseApplied": true,
-    "estimatedSnr": 35.046322970533936,
-    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and real orbital telemetry."
+    "estimatedSnr": 32.1214682812755,
+    "atmosphere": {
+      "model": "Rayleigh path radiance + transmittance (simulated)",
+      "airMass": 1.0,
+      "viewAngleDeg": 0.0,
+      "perBand": {
+        "Red": {
+          "pathReflectance": 0.011,
+          "transmittance": 0.96
+        },
+        "Green": {
+          "pathReflectance": 0.021,
+          "transmittance": 0.93
+        },
+        "Blue": {
+          "pathReflectance": 0.034,
+          "transmittance": 0.9
+        },
+        "Near Infrared": {
+          "pathReflectance": 0.003,
+          "transmittance": 0.98
+        }
+      },
+      "provenance": "SIMULATED effect. Source imagery is Sentinel-2 L2A surface reflectance with the atmosphere removed; this stage re-applies a representative clear-sky atmosphere so the product approximates what an on-orbit sensor would observe. Values are representative, not a radiative-transfer computation, and are not measurements."
+    },
+    "noDataPixelPercent": 51.272,
+    "parameterProvenance": "Integration time, read noise, full well, and MTF sigma are representative smallsat values, not mission-configured data. GSD, swath and ground speed are derived from mission configuration and real orbital telemetry. Pixels with no source imagery are reported in noDataPixelPercent and are excluded from every statistic; they are not filled with invented ground."
+  },
+  "solar": {
+    "elevationDeg": 43.95,
+    "azimuthDeg": 40.97,
+    "localSolarTimeHours": 9.944,
+    "declinationDeg": 22.972,
+    "illuminationCondition": "daylight",
+    "method": "Cooper's equation for declination + longitude-based local solar time, standard elevation/azimuth identities. No equation-of-time or refraction correction (~+/-2 deg elevation accuracy) -- accurate enough to characterise illumination, not for precision pointing."
   },
   "cloud": {
-    "cloudCoverPercent": 2.823014037716184,
+    "cloudCoverPercent": 2.5254818456528207,
     "method": "spectral-brightness-flatness",
     "thresholds": {
       "brightness": 0.28,
@@ -133,15 +172,15 @@
     "caveat": "Heuristic test on surface reflectance, not a trained cloud mask. Bright arid surfaces can register as false positives."
   },
   "quality": {
-    "score": 85.3,
-    "grade": "excellent",
+    "score": 74.6,
+    "grade": "good",
     "factors": {
-      "dynamicRange": 48.3,
+      "dynamicRange": 51.3,
       "unsaturated": 99.9,
-      "notUnderexposed": 99.6,
+      "notUnderexposed": 100.0,
       "sharpness": 76.1,
-      "cloudFree": 97.2,
-      "dataComplete": 93.7
+      "cloudFree": 97.5,
+      "dataComplete": 48.7
     },
     "weights": {
       "dynamicRange": 0.15,
@@ -152,29 +191,46 @@
       "dataComplete": 0.25
     },
     "measurements": {
-      "saturatedPixelPercent": 0.018,
-      "zeroPixelPercent": 0.089,
-      "usedDynamicRangePercent": 48.3,
+      "saturatedPixelPercent": 0.015,
+      "zeroPixelPercent": 0.0,
+      "usedDynamicRangePercent": 51.3,
       "alongTrackSmearPx": 1.2,
-      "estimatedSnr": 35.0,
-      "validDataPercent": 93.7
+      "estimatedSnr": 32.1,
+      "validDataPercent": 48.73
+    }
+  },
+  "validation": {
+    "status": "unusable",
+    "label": "Unusable \u2014 Quality Constraints",
+    "issues": [
+      {
+        "level": "unusable",
+        "check": "coverage",
+        "detail": "Only 48.7% of the frame is backed by source imagery"
+      }
+    ],
+    "measurements": {
+      "validDataPercent": 48.73,
+      "pureBlackPercent": 0.0,
+      "clippedWhitePercent": 0.0,
+      "cloudCoverPercent": 2.53
     }
   },
   "classification": {
     "available": true,
     "method": "spectral-index-thresholds",
     "classFractionsPercent": {
-      "water": 74.69,
-      "vegetation": 14.81,
-      "bare": 3.9,
-      "urban": 3.78,
-      "cloud": 2.82
+      "water": 84.78,
+      "vegetation": 4.38,
+      "bare": 4.07,
+      "urban": 4.26,
+      "cloud": 2.53
     },
     "dominantClass": "water",
     "indices": {
-      "meanNdvi": -0.2,
-      "meanNdwi": 0.4346,
-      "meanBrightness": 0.0968
+      "meanNdvi": -0.2371,
+      "meanNdwi": 0.5479,
+      "meanBrightness": 0.0912
     },
     "thresholds": {
       "cloud": "brightness > 0.28 and spread < 0.08",
@@ -185,12 +241,117 @@
     },
     "caveat": "Index-threshold classification, not a trained classifier. Thresholds are standard published values and are not tuned to Australian land cover specifically."
   },
+  "coordinateValidation": {
+    "valid": true,
+    "datum": "WGS84",
+    "latitude": -11.789730251024908,
+    "longitude": 136.24093329124452,
+    "issues": []
+  },
+  "reference": {
+    "source": "Satellite surface reflectance archive",
+    "sourceSceneId": "S2B_53LPH_20260706_0_L2A",
+    "sourceDatetime": "2026-07-06T01:20:18.760000+00:00",
+    "sourcePlatform": "sentinel-2b",
+    "nativeGsdM": 10.0,
+    "deliveredWidthPx": 512,
+    "deliveredHeightPx": 512,
+    "provider": "pluggable: current implementation reuses the source archive mosaic already fetched for this observation's footprint; a different archive or a manually supplied reference image could be substituted here without changing any caller",
+    "note": "This is real Earth imagery for the observation's true coordinates, rendered WITHOUT the ASC_074 sensor simulation -- it is a reference scene, not an ASC_074 acquisition and not a measurement of ASC_074's performance. Its acquisition date (sourceDatetime) differs from the product's simulated acquisition time by design; the two are not the same observation, only the same ground location."
+  },
+  "geospatialValidation": {
+    "checklist": {
+      "coordinatesValidated": true,
+      "footprintCalculated": true,
+      "sensorModelApplied": true,
+      "referenceSceneMatched": true
+    },
+    "coordinateValidation": {
+      "valid": true,
+      "datum": "WGS84",
+      "latitude": -11.789730251024908,
+      "longitude": 136.24093329124452,
+      "issues": []
+    },
+    "footprintAlignment": {
+      "aligned": true,
+      "method": "The simulated product and the Earth reference are both rendered from the identical windowed read (same bbox, same output raster shape) -- alignment is guaranteed by construction, not independently measured. There is no registration step to validate because there was never a second, separately-fetched image to misalign."
+    },
+    "landCoverSimilarity": {
+      "available": true,
+      "similarityPercent": 91.9,
+      "referenceFractionsPercent": {
+        "water": 84.78,
+        "vegetation": 4.38,
+        "bare": 4.07,
+        "urban": 4.26,
+        "cloud": 2.53
+      },
+      "simulatedFractionsPercent": {
+        "water": 92.87,
+        "vegetation": 1.84,
+        "bare": 1.9,
+        "urban": 1.88,
+        "cloud": 1.52
+      },
+      "method": "100 - (sum of |reference% - simulated%| per class) / 2, both classified by core.classify.classify_scene"
+    },
+    "imageQualityRealism": {
+      "qualityScore": 74.6,
+      "qualityGrade": "good",
+      "productStatus": "unusable",
+      "productStatusLabel": "Unusable \u2014 Quality Constraints",
+      "method": "Pass-through of core.quality.assess_quality / validate_product, not recomputed here."
+    },
+    "overallConfidence": {
+      "score": 90.0,
+      "factors": {
+        "coordinateValidity": 100.0,
+        "footprintAlignment": 100.0,
+        "landCoverSimilarity": 91.9,
+        "imageQualityRealism": 74.6
+      },
+      "weights": {
+        "coordinateValidity": 0.2,
+        "footprintAlignment": 0.2,
+        "landCoverSimilarity": 0.3,
+        "imageQualityRealism": 0.3
+      },
+      "label": "SIMULATED confidence indicator -- a disclosed weighted combination of the checks above, not a measured scientific result and not a statement about ASC_074's real-world imaging performance."
+    }
+  },
+  "spectral": {
+    "bands": {
+      "Red": {
+        "centerWavelengthNm": 664.6,
+        "bandwidthNm": 31,
+        "sentinel2Band": "B04"
+      },
+      "Green": {
+        "centerWavelengthNm": 559.8,
+        "bandwidthNm": 36,
+        "sentinel2Band": "B03"
+      },
+      "Blue": {
+        "centerWavelengthNm": 492.4,
+        "bandwidthNm": 66,
+        "sentinel2Band": "B02"
+      },
+      "Near Infrared": {
+        "centerWavelengthNm": 832.8,
+        "bandwidthNm": 106,
+        "sentinel2Band": "B08"
+      }
+    },
+    "source": "Sentinel-2 MSI published specification (ESA), used as an assumed proxy for ASC_074",
+    "disclosure": "ASC_074's own spectral response (center wavelength, bandwidth, quantum efficiency) has not been specified anywhere in this project. The values here are Sentinel-2's own published MSI band specification, used as a PROXY because the pipeline reads real Sentinel-2 pixel data for each of these band names. This describes the real characteristics of the source data, not a measurement or specification of ASC_074's actual sensor -- it does not demonstrate that ASC_074 has an identical spectral response, only that its simulated bands are currently modelled as if it did."
+  },
   "provenance": {
     "sourceCollection": "Satellite surface reflectance archive",
-    "sourceSceneId": "S2A_53LNG_20260703_0_L2A",
-    "sourceDatetime": "2026-07-03T01:20:54.883000+00:00",
-    "sourceCloudCoverPercent": 18.045461,
-    "sourcePlatform": "sentinel-2a",
+    "sourceSceneId": "S2B_53LPH_20260706_0_L2A",
+    "sourceDatetime": "2026-07-06T01:20:18.760000+00:00",
+    "sourceCloudCoverPercent": 17.504169,
+    "sourcePlatform": "sentinel-2b",
     "sourceNativeGsdM": 10.0,
     "sourceBands": [
       "Red",
@@ -201,42 +362,33 @@
     "stacEndpoint": "https://earth-search.aws.element84.com/v1",
     "mosaicContributors": [
       {
-        "sceneId": "S2A_53LNG_20260703_0_L2A",
-        "datetime": "2026-07-03T01:20:54.883000+00:00",
-        "cloudCoverPercent": 18.045461,
-        "platform": "sentinel-2a",
-        "coverageContributed": 0.1284
-      },
-      {
-        "sceneId": "S2B_53LPG_20250701_0_L2A",
-        "datetime": "2025-07-01T01:20:33.534000+00:00",
-        "cloudCoverPercent": 11.165566,
-        "platform": "sentinel-2b",
-        "coverageContributed": 0.3662
-      },
-      {
-        "sceneId": "S2B_53LPG_20250701_1_L2A",
-        "datetime": "2025-07-01T01:20:40.260000+00:00",
-        "cloudCoverPercent": 16.448243,
-        "platform": "sentinel-2b",
-        "coverageContributed": 0.0444
-      },
-      {
+        "radiometricMatch": null,
         "sceneId": "S2B_53LPH_20260706_0_L2A",
         "datetime": "2026-07-06T01:20:18.760000+00:00",
         "cloudCoverPercent": 17.504169,
         "platform": "sentinel-2b",
-        "coverageContributed": 0.3979
+        "coverageContributed": 0.4873
       }
     ],
-    "mosaicSceneCount": 4,
-    "validDataFraction": 0.937,
+    "mosaicSceneCount": 1,
+    "validDataFraction": 0.4873,
+    "seamFeathered": true,
+    "seamFeatherPx": 12,
     "note": "Synthetic product. Surface reflectance is real satellite imagery acquired at sourceDatetime; the acquisition geometry, timing and sensor response are simulated from real orbital telemetry and the mission camera configuration. simulatedTimestampUtc and sourceDatetime are different by design -- see the imagery source module."
   },
   "files": {
     "geotiff": "ASC074-P1-S03-O0002-20260703T005139.tif",
     "preview": "ASC074-P1-S03-O0002-20260703T005139.png",
+    "reference": "ASC074-P1-S03-O0002-20260703T005139.reference.jpg",
     "metadata": "ASC074-P1-S03-O0002-20260703T005139.json"
   },
-  "lastDownloadedTimestamp": "2026-08-23T07:59:22.748526+00:00"
+  "qualityStatus": "unusable",
+  "qualityLabel": "Unusable \u2014 Quality Constraints",
+  "qualityIssues": [
+    {
+      "level": "unusable",
+      "check": "coverage",
+      "detail": "Only 48.7% of the frame is backed by source imagery"
+    }
+  ]
 }
