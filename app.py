@@ -16,11 +16,13 @@ from core.k3_data_model import (
     default_k3_config,
     derive_pushbroom_data_model,
 )
+from core.missions import DEFAULT_MISSION, get_mission
 from core.observation_duration import observation_duration_analysis
 
 
 BASE = Path(__file__).resolve().parent
-PROCESSED = BASE / "data" / "processed"
+_MISSION = get_mission(DEFAULT_MISSION)
+PROCESSED = _MISSION["processed_dir"]
 PLOT_TEMPLATE = "plotly_white"
 ACCENT = "#2f6df6"
 GREEN = "#22a06b"
@@ -486,7 +488,7 @@ def cached_observation(state_df: pd.DataFrame, swath_km: float):
 
 
 try:
-    config = load_mission_configuration(BASE)
+    config = load_mission_configuration(BASE, config_path=_MISSION["config_path"])
 except Exception as exc:
     st.error("Mission configuration could not be loaded.")
     st.exception(exc)

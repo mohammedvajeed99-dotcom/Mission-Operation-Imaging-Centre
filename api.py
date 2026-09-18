@@ -1,4 +1,3 @@
-from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +12,7 @@ from core.australia_coverage import (
 )
 from core.regions import AOI_BOXES, region_for_mission, region_label_for_mission
 from core.camera_model import build_camera_model, build_camera_modules
+from core.caching import locked_lru_cache
 from core.config_loader import load_mission_configuration, validate_configuration
 from core.cumulative_coverage import cumulative_region_coverage
 from core.data_pipeline import read_processed_frame, run_pipeline
@@ -430,7 +430,7 @@ def build_duty(state, eclipse, swath_km, region="australia"):
     }
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def dashboard_payload(mission_id=DEFAULT_MISSION):
     mission_entry = get_mission(mission_id)
     region = region_for_mission(mission_id)
@@ -663,7 +663,7 @@ def _products_dir(mission_id):
     return get_mission(mission_id)["products_dir"]
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def _camera(mission_id=DEFAULT_MISSION):
     mission_entry = get_mission(mission_id)
     config = load_mission_configuration(BASE, config_path=mission_entry["config_path"])
@@ -672,12 +672,12 @@ def _camera(mission_id=DEFAULT_MISSION):
     return build_camera_model(config["orbit"].get("Altitude", None), payload_cfg)
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def _state_cached(mission_id=DEFAULT_MISSION):
     return read_processed("Satellite_State_History.xlsx", mission_id)
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def scene_catalog_payload(mission_id=DEFAULT_MISSION):
     """Every candidate scene the constellation could capture over the mission's AOI."""
     from core.footprint import scene_grid
@@ -852,7 +852,7 @@ def plan_schedule():
     return jsonify(schedule_requests(_state_cached(mission_id), _camera(mission_id), requests_in))
 
 
-@lru_cache(maxsize=32)
+@locked_lru_cache(maxsize=32)
 def _replay(mission_id, steps):
     from core.planning import coverage_replay
 
@@ -867,7 +867,7 @@ def plan_replay():
     return jsonify({"steps": steps, "frames": _replay(mission_id, steps)})
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def state_series_payload(mission_id=DEFAULT_MISSION, max_points=1500):
     """Per-satellite downsampled state time-series for the State Explorer.
 
@@ -1585,8 +1585,12 @@ if __name__ == "__main__":
     import os
 
     # Under the reloader only the child process serves requests; warming in
-    # the parent too would duplicate the work for nothing.
-    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    # the parent too would duplicate the work for nothing. ASC074_WARM_CACHES=0
+    # skips warming altogether -- the same knob serve.py already honors -- so
+    # a local run can be told to lazily load only the mission you actually
+    # open, matching how the memory-constrained deployment behaves.
+    warm_ok = os.environ.get("ASC074_WARM_CACHES", "1") not in ("0", "false", "False")
+    if warm_ok and (not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"):
         _warm_caches()
 
     # threaded=True: without it Flask's dev server handles one request at a

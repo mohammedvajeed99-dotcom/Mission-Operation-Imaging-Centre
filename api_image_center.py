@@ -17,8 +17,8 @@ Design notes:
 import csv
 import io
 import json
+import threading
 import zipfile
-from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +26,7 @@ from flask import Blueprint, jsonify, request, send_file
 from werkzeug.datastructures import MultiDict
 
 from core.access_control import SECTIONS, unlocked_downloads, unlocked_sections
+from core.caching import locked_lru_cache
 from core.camera_model import build_camera_model
 from core.data_pipeline import read_processed_frame
 from core.config_loader import load_mission_configuration
@@ -49,6 +50,14 @@ BASE = Path(__file__).resolve().parent
 bp = Blueprint("image_center", __name__, url_prefix="/api/imagecenter")
 
 _registries = {}
+
+# Only one image generation at a time: each one downloads Sentinel-2 imagery
+# and holds a full-resolution raster in memory (core.products.generate_product),
+# which is the single most memory-hungry operation in the app. Letting two run
+# concurrently doubles that peak for no benefit -- generation is already slow
+# and nobody needs it to be parallel, they need the rest of the UI to stay
+# responsive while one runs, which the thread pool already gives them elsewhere.
+_generation_lock = threading.Lock()
 
 
 def _registry(mission_id):
@@ -90,12 +99,12 @@ def _gate_image_center():
 # --------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def _config(mission_id=DEFAULT_MISSION):
     return load_mission_configuration(BASE, config_path=get_mission(mission_id)["config_path"])
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def _camera(mission_id=DEFAULT_MISSION):
     cfg = _config(mission_id)
     payload = cfg.get("payload", {})
@@ -103,12 +112,12 @@ def _camera(mission_id=DEFAULT_MISSION):
                               payload if isinstance(payload, dict) else {})
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def _state(mission_id=DEFAULT_MISSION):
     return read_processed_frame(get_mission(mission_id)["processed_dir"] / "Satellite_State_History.xlsx")
 
 
-@lru_cache(maxsize=8)
+@locked_lru_cache(maxsize=8)
 def _catalog(mission_id=DEFAULT_MISSION):
     """Full imaging opportunity catalog. Expensive once, then cached."""
     cfg = _config(mission_id)
@@ -714,29 +723,37 @@ def generate(image_id):
         max_pixels = 2048
     max_pixels = max(256, min(max_pixels, 2048))
 
-    gen_progress.start(mission_id, image_id, max_pixels)
+    if not _generation_lock.acquire(blocking=False):
+        return jsonify({
+            "ok": False,
+            "error": "Another image is already generating on this server. Wait a moment and try again.",
+        }), 429
     try:
-        product = generate_product(
-            scene,
-            image_products,
-            max_pixels=max_pixels,
-            ground_speed_km_s=speed,
-            max_cloud=float(body.get("maxCloud", 20.0)),
-            add_noise=bool(body.get("addNoise", True)),
-            seed=body.get("seed"),
-            progress_cb=gen_progress.progress_callback(mission_id),
-        )
-    except ImageryUnavailable as exc:
-        gen_progress.finish(mission_id, record=False)
-        failure = {**entry, "generationStatus": FAILED, "error": str(exc),
-                   "generatedTimestamp": utc_now_iso()}
-        registry.save(image_id, failure)
-        return jsonify({"ok": False, "error": str(exc), "image": failure}), 502
-    except Exception as exc:  # noqa: BLE001 - surface the real reason to the operator
-        gen_progress.finish(mission_id, record=False)
-        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
-    else:
-        gen_progress.finish(mission_id, record=True)
+        gen_progress.start(mission_id, image_id, max_pixels)
+        try:
+            product = generate_product(
+                scene,
+                image_products,
+                max_pixels=max_pixels,
+                ground_speed_km_s=speed,
+                max_cloud=float(body.get("maxCloud", 20.0)),
+                add_noise=bool(body.get("addNoise", True)),
+                seed=body.get("seed"),
+                progress_cb=gen_progress.progress_callback(mission_id),
+            )
+        except ImageryUnavailable as exc:
+            gen_progress.finish(mission_id, record=False)
+            failure = {**entry, "generationStatus": FAILED, "error": str(exc),
+                       "generatedTimestamp": utc_now_iso()}
+            registry.save(image_id, failure)
+            return jsonify({"ok": False, "error": str(exc), "image": failure}), 502
+        except Exception as exc:  # noqa: BLE001 - surface the real reason to the operator
+            gen_progress.finish(mission_id, record=False)
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+        else:
+            gen_progress.finish(mission_id, record=True)
+    finally:
+        _generation_lock.release()
 
     # generate_product names files by its own scene id; rename onto the image ID
     # so the registry, the catalog and the download routes all agree.

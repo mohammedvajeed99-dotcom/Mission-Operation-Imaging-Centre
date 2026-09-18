@@ -32,6 +32,7 @@ data/missions/*/image_center/*.tif
 # endpoints, which have no frontend caller.
 data/products/
 data/products2/
+data/missions/*/products/
 
 .DS_Store
 

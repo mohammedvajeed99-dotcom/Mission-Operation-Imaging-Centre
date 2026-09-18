@@ -1,7 +1,6 @@
 """Mission registry: maps a mission id to the on-disk paths that hold its
-GMAT-derived data. Every path for asc074_6x8 is the existing, unmoved
-location -- adding a mission is purely additive and never relocates the
-reference implementation's files.
+GMAT-derived data. Every mission, including the original asc074_6x8, lives
+under data/missions/<id>/ so all missions are stored the same way.
 """
 
 from pathlib import Path
@@ -16,11 +15,11 @@ MISSIONS = {
         # "6x8" so the label is self-explanatory wherever it is shown --
         # the dropdown, PDF/Excel report headers, comparison tables.
         "label": "ASC_074 — 6 planes x 8 sats/plane — 48 Satellites",
-        "config_path": BASE / "config" / "Mission_Configuration.xlsx",
-        "raw_dir": BASE / "data" / "raw",
-        "processed_dir": BASE / "data" / "processed",
-        "products_dir": BASE / "data" / "products",
-        "image_center_dir": BASE / "data" / "image_center",
+        "config_path": BASE / "data" / "missions" / "asc074_6x8" / "config" / "Mission_Configuration.xlsx",
+        "raw_dir": BASE / "data" / "missions" / "asc074_6x8" / "raw",
+        "processed_dir": BASE / "data" / "missions" / "asc074_6x8" / "processed",
+        "products_dir": BASE / "data" / "missions" / "asc074_6x8" / "products",
+        "image_center_dir": BASE / "data" / "missions" / "asc074_6x8" / "image_center",
     },
     "asc074_3x1": {
         "id": "asc074_3x1",

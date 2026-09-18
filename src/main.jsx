@@ -2563,16 +2563,16 @@ const COVERAGE_METHODS = [
   { metric: "AOI coverage %", meaning: "The mission's AOI land area is discretized into a 1° lat/lon grid over its mainland (+ Tasmania for the Australia AOI) land boundary. A cell counts as covered if any of the 48 satellites' sub-points came within half the modeled ground swath of the cell center.", formula: "% = latitude-weighted covered cells ÷ total land cells × 100" },
   { metric: "All-sat observed", meaning: "Sum of each of the 48 satellites' own 'observing AOI' time. Overlapping satellites are each counted, so this can exceed the mission duration.", formula: "Σ (per-satellite Total Observation Seconds)" },
   { metric: "Max simultaneous", meaning: "The highest number of satellites (out of 48) flagged as observing the AOI at the same shared timestamp.", formula: "max(count of satellites observing at time t)" },
-  { metric: "Observation Windows (table column)", meaning: "A 'window' is one continuous pass: it opens the moment a satellite's sensor footprint first touches the AOI, and closes the moment it leaves (a gap longer than 1.5x that satellite's normal reporting interval). A satellite that crosses the AOI three separate times in the analysis window has 3 windows, each with its own start, end and duration -- they are never merged.", formula: "count of continuous in-AOI intervals per satellite, from core.observation_duration.observation_duration_analysis()" },
-  { metric: "Avg window (table column)", meaning: "The mean length of that satellite's own passes -- add up every window's duration and divide by how many windows it had. A satellite with a short average window sees the AOI only glancingly each time (e.g. a corner of its swath clips the coast); a long average window means a fuller crossing.", formula: "mean(per-window Observation Duration) for that satellite" },
+  { metric: "Flyovers (table column)", meaning: "A 'flyover' is one continuous pass: it opens the moment a satellite's sensor footprint first touches the AOI, and closes the moment it leaves (a gap longer than 1.5x that satellite's normal reporting interval). A satellite that crosses the AOI three separate times in the analysis window has 3 flyovers, each with its own start, end and duration -- they are never merged.", formula: "count of continuous in-AOI intervals per satellite, from core.observation_duration.observation_duration_analysis()" },
+  { metric: "Avg flyover (table column)", meaning: "The mean length of that satellite's own passes -- add up every flyover's duration and divide by how many it had. A satellite with a short average flyover sees the AOI only glancingly each time (e.g. a corner of its swath clips the coast); a long average flyover means a fuller crossing.", formula: "mean(per-flyover Observation Duration) for that satellite" },
   { metric: "Duty % (KPI and table column) -- what 'duty' means here", meaning: "The literal question this answers is: 'of all the time in the analysis window, what fraction did this satellite (or, for the KPI card, the whole constellation) actually spend observing the AOI?' 75% duty for the constellation KPI means the AOI had at least one satellite over it for three-quarters of the day; a satellite-row duty of 2% means that satellite personally spent about 29 minutes of the 24-hour window over the AOI, and the rest of its orbit was elsewhere on Earth (which is expected and correct -- a single LEO satellite is over any one country only a small fraction of each day). The constellation KPI is nearly always far higher than any single satellite's row, because different satellites cover the gap.", formula: "Satellite row: (that satellite's Total Observation Seconds ÷ its own simulated seconds) × 100. Constellation KPI: (union of every satellite's observing intervals ÷ whole analysis window) × 100 -- overlapping coverage is only counted once." },
 ];
 
 const COVERAGE_TABLE_COLUMNS = [
   { key: "satellite", label: "Satellite" },
   { key: "Total Observation Time", label: "Observed" },
-  { key: "Observation Windows", label: "Windows" },
-  { key: "Average Window", label: "Avg window" },
+  { key: "Observation Windows", label: "Flyovers" },
+  { key: "Average Window", label: "Avg flyover" },
   { key: "Observation Duty Cycle (%)", label: "Duty %", render: (v) => `${number(v, 2)}%` },
 ];
 
@@ -2617,7 +2617,7 @@ function CoverageView({ data }) {
           <PdfButton
             mission={data.mission}
             title={`${aoiLabel} Observation Duration`}
-            subtitle={`Per-satellite observation windows over the ${aoiLabel} AOI`}
+            subtitle={`Per-satellite flyovers over the ${aoiLabel} AOI`}
             columns={COVERAGE_TABLE_COLUMNS}
             rows={filteredObs}
             fileName="observation_duration"
@@ -2627,7 +2627,7 @@ function CoverageView({ data }) {
       >
         <DataTable rows={filteredObs.slice(0, 24)} columns={COVERAGE_TABLE_COLUMNS} />
         <p className="panelFootnote">
-          <strong>Windows</strong> = separate passes over {aoiLabel} (a satellite crossing three times has 3, each timed independently). <strong>Avg window</strong> = the mean length of that satellite&apos;s own passes. <strong>Duty %</strong> = the share of the whole day that satellite spent over {aoiLabel} at all -- a few percent per satellite is expected for a single LEO craft; see &quot;How these analytics are calculated&quot; below for the exact formulas and why the constellation-wide Duty % KPI above is so much higher.
+          <strong>Flyovers</strong> = separate passes over {aoiLabel} (a satellite crossing three times has 3, each timed independently). <strong>Avg flyover</strong> = the mean length of that satellite&apos;s own passes. <strong>Duty %</strong> = the share of the whole day that satellite spent over {aoiLabel} at all -- a few percent per satellite is expected for a single LEO craft; see &quot;How these analytics are calculated&quot; below for the exact formulas and why the constellation-wide Duty % KPI above is so much higher.
         </p>
       </Panel>
       <MethodNote items={swap48Methods(COVERAGE_METHODS, data.constellation.configuredSatellites)} />
@@ -3358,7 +3358,7 @@ const K_CONTENT = {
   },
   k9: {
     requirement:
-      "The pre-processed package from the OBC is downlinked to the GSN. While sensors cover the Area, the OBC waits; once coverage stops it processes. This view maps the observation windows feeding the pipeline.",
+      "The pre-processed package from the OBC is downlinked to the GSN. While sensors cover the Area, the OBC waits; once coverage stops it processes. This view maps the observation flyovers feeding the pipeline.",
     methods: [
       { metric: "Downlink windows", meaning: "RF passes available to deliver the pre-processed data package to the mission's GSN.", formula: "row count in RF_Contacts.xlsx, all satellites" },
       { metric: "Summed / max simultaneous observation", meaning: "Same basis as K6/Coverage — total and peak concurrent observing satellites, which sets the pipeline's input load.", formula: "Σ per-satellite observation time; max(concurrent observing count)" },
@@ -3374,17 +3374,17 @@ const K_CONTENT = {
         </div>
         <Panel
           index={4}
-          title="Observation Windows"
+          title="Observation Flyovers"
           sub="Per-satellite observation cycles feeding the downlink pipeline"
           className="wide"
           action={
-            <PdfButton mission={data.mission} title="Observation Windows" subtitle="Per-satellite observation cycles feeding the downlink pipeline" columns={[
+            <PdfButton mission={data.mission} title="Observation Flyovers" subtitle="Per-satellite observation cycles feeding the downlink pipeline" columns={[
               { key: "satellite", label: "Satellite" },
               { key: "Total Observation Time", label: "Observed" },
-              { key: "Observation Windows", label: "Windows" },
-              { key: "Average Window", label: "Avg window" },
+              { key: "Observation Windows", label: "Flyovers" },
+              { key: "Average Window", label: "Avg flyover" },
               { key: "Longest Window", label: "Longest" },
-            ]} rows={data.coverage.observation.perSatellite} fileName="observation_windows" section="k9" />
+            ]} rows={data.coverage.observation.perSatellite} fileName="observation_flyovers" section="k9" />
           }
         >
           <DataTable
@@ -3392,8 +3392,8 @@ const K_CONTENT = {
             columns={[
               { key: "satellite", label: "Satellite" },
               { key: "Total Observation Time", label: "Observed" },
-              { key: "Observation Windows", label: "Windows" },
-              { key: "Average Window", label: "Avg window" },
+              { key: "Observation Windows", label: "Flyovers" },
+              { key: "Average Window", label: "Avg flyover" },
               { key: "Longest Window", label: "Longest" },
             ]}
           />
@@ -3835,8 +3835,9 @@ function Dashboard() {
           {offline ? (
             <p className="loadingHint">
               The dashboard could not contact <code>{API_BASE}</code>. Start the backend with{" "}
-              <code>python api.py</code> and retry — nothing is lost, this tab just needs to
-              reconnect.
+              <code>python serve.py</code> and retry — nothing is lost, this tab just needs to
+              reconnect. (Avoid <code>python api.py</code> for regular use: its auto-reloader
+              restarts the process mid-request, which is what usually causes this screen.)
             </p>
           ) : null}
           <button className="btn primary" onClick={retry} disabled={loading}>
