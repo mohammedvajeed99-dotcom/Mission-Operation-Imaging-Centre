@@ -40,9 +40,17 @@ def run_pipeline(base_dir=None, raw_dir=None, out_dir=None):
     rf = parse_contact_folder(raw / 'contacts' / 'rf', 'RF')
     optical = parse_contact_folder(raw / 'contacts' / 'optical', 'Optical')
     eclipse = parse_eclipse_folder(raw / 'eclipse')
+    # Each mission owns its state report at raw/state/StateReport.txt. There
+    # used to be a fallback to <repo root>/StateReport.txt for the 6x8 mission,
+    # whose file predated that convention; its file now lives in the mission
+    # folder like every other one, and the root copy is gone.
+    #
+    # The fallback is deliberately NOT kept: it was mission-agnostic, so any
+    # mission missing its own state file silently loaded ASC_074's 48-satellite
+    # history instead of reporting the gap. parse_state_report returns an empty
+    # frame for a missing path, which surfaces honestly in the data-quality
+    # check rather than showing another mission's data as if it were this one's.
     state_path = raw / 'state' / 'StateReport.txt'
-    if not state_path.exists():
-        state_path = base / 'StateReport.txt'
     state = parse_state_report(state_path)
     outputs = {'RF_Contacts.xlsx': rf, 'Optical_Contacts.xlsx': optical,
                'All_Eclipse_Events.xlsx': eclipse, 'Satellite_State_History.xlsx': state}

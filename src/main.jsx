@@ -1103,7 +1103,7 @@ function FullAccessBox() {
 }
 
 function Sidebar({ active, setActive, onHome }) {
-  const guideItem = ["guide", Info, "How to Read This Dashboard"];
+  const guideItem = ["guide", Info, "How to read"];
   const mission = [
     ["overview", LayoutDashboard, "Mission Overview"],
     ["explorer", Satellite, "State Explorer"],
@@ -3878,7 +3878,7 @@ function Dashboard() {
   else if (active === "constellation-anim") view = <ConstellationAnimationView data={data} state={state} />;
   else if (active === "mission-analytics") view = <MissionAnalyticsView data={data} />;
   else if (active === "comparison") view = <MissionComparisonView missions={missions} currentMissionId={missionId} apiBase={API_BASE} />;
-  else if (active === "guide") view = <DashboardGuideView glossaryMap={glossaryMap} />;
+  else if (active === "guide") view = <DashboardGuideView />;
   else if (K_BY_ID[active]) view = <KView id={active} data={data} state={state} />;
   // No silent fallback to Overview: an unrecognised hash must not become a
   // way around the gate. AccessGate reports the unknown section instead.

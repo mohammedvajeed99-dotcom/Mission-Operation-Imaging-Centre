@@ -18,16 +18,15 @@ def _glob_txt(folder):
 
 def _find_state_files(raw_dir):
     """Mirrors core.data_pipeline.run_pipeline's state-file resolution:
-    data/raw/state/StateReport.txt, falling back to <repo root>/StateReport.txt
-    for missions (like the reference 6x8 one) whose state file predates the
-    per-mission raw/state/ convention."""
+    each mission's state report lives at data/raw/state/StateReport.txt.
+
+    The old fallback to <repo root>/StateReport.txt is gone. It existed for the
+    6x8 mission, whose file predated the per-mission convention, but it was
+    mission-agnostic: any mission lacking its own state file resolved to
+    ASC_074's 48-satellite report and looked healthy while showing the wrong
+    data. Returning nothing lets _check report it as missing."""
     primary = raw_dir / "state" / "StateReport.txt"
-    if primary.exists():
-        return [primary]
-    fallback = raw_dir.parent.parent / "StateReport.txt"
-    if fallback.exists():
-        return [fallback]
-    return []
+    return [primary] if primary.exists() else []
 
 
 def _check(name, raw_files, processed_path, optional_columns=None):

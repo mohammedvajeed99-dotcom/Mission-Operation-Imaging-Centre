@@ -1740,25 +1740,91 @@ export function MissionComparisonView({ missions = [], currentMissionId, apiBase
 /* -------------------------------------------------------------------------- */
 
 const GUIDE_SECTIONS = [
-  { title: "Coverage", body: "How much observation/coverage opportunity is available. A satellite \"covers\" a location when its sensor footprint passes over it — Coverage % is the share of the mission's AOI analysis grid that has been passed over at least once during the simulation window." },
-  { title: "Revisit", body: "How frequently the target can be observed again. Revisit time is the interval between two consecutive valid observation opportunities over the same location — shorter is better for time-sensitive monitoring." },
+  { title: "Coverage", body: "How much observation/coverage opportunity is available. A satellite \"covers\" a location when its sensor footprint passes over it, Coverage % is the share of the mission's AOI analysis grid that has been passed over at least once during the simulation window." },
+  { title: "Revisit", body: "How frequently the target can be observed again. Revisit time is the interval between two consecutive valid observation opportunities over the same location, shorter is better for time-sensitive monitoring." },
   { title: "Contact", body: "When the spacecraft can communicate with the ground station. A contact window opens once the spacecraft rises above the station's minimum elevation angle and closes when it drops back below it." },
   { title: "Eclipse", body: "When the spacecraft is in Earth's shadow. Umbra is full shadow (no sunlight at all); Penumbra is partial shadow. No sunlight means no solar power generation and no illuminated imaging during that period." },
-  { title: "Observation", body: "When imaging conditions are satisfied — the sensor footprint is over the Area of Interest and the satellite is available to image it. Observation Opportunities are the individual windows where this is true." },
-  { title: "Gap", body: "A period without a valid opportunity — for coverage, the longest stretch of time a location goes unobserved; for contact, the longest stretch without a ground link. Large gaps are the main limitation to flag when evaluating a constellation design." },
-  { title: "AOI", body: "Area of Interest — the geographic region this mission's analysis is scoped to (e.g. mainland Australia and Tasmania for the ASC_074 missions, or India for the ASC_080 missions), defined once in the mission configuration and reused everywhere (coverage, revisit, observation opportunities) so every number stays comparable." },
+  { title: "Observation", body: "When imaging conditions are satisfied, the sensor footprint is over the Area of Interest and the satellite is available to image it. Observation Opportunities are the individual windows where this is true." },
+  { title: "Gap", body: "A period without a valid opportunity, for coverage, the longest stretch of time a location goes unobserved; for contact, the longest stretch without a ground link. Large gaps are the main limitation to flag when evaluating a constellation design." },
+  { title: "AOI", body: "Area of Interest, the geographic region this mission's analysis is scoped to (e.g. mainland Australia and Tasmania for the ASC_074 missions, or India for the ASC_080 missions), defined once in the mission configuration and reused everywhere (coverage, revisit, observation opportunities) so every number stays comparable." },
+  { title: "DUTY CYCLE", body: "The percentage of time a satellite (or the whole fleet) spends actively observing the Area of Interest. Higher duty cycle means more productive time over the target and less time flying over empty ocean or other regions." },
+  { title: "GROUND SWATH", body: "The width of the strip of Earth that the camera can see in a single pass. A wider swath covers more ground per overflight but usually means coarser resolution." },
 ];
 
-export function DashboardGuideView({ glossaryMap = {} }) {
-  const [query, setQuery] = React.useState("");
-  const terms = Object.values(glossaryMap).sort((a, b) => a.name.localeCompare(b.name));
-  const filtered = query.trim()
-    ? terms.filter((t) => `${t.name} ${t.definition}`.toLowerCase().includes(query.trim().toLowerCase()))
-    : terms;
+/* Plain-language companion to the Parameter Glossary above. The glossary
+   table is the engineering reference (unit, source, calculation, significance);
+   this is the same vocabulary restated for a non-specialist reader. Kept as a
+   frontend constant like GUIDE_SECTIONS because it is static explanatory copy,
+   not computed data -- the /api/glossary payload stays untouched. */
+const PLAIN_TERMS = [
+  { term: "95th Percentile Gap", body: "The gap duration below which 95% of the analysed cell-level gap values fall. It represents a near-worst-case gap while reducing the influence of one unusually extreme location." },
+  { term: "95th Percentile Revisit Time (P95)", body: "The revisit interval below which 95% of all pooled revisit intervals fall. Only the slowest 5% of revisit intervals are longer, making it useful for understanding the long tail of revisit performance." },
+  { term: "AOI (Area of Interest)", body: "The geographic region selected for the mission analysis. All coverage, revisit and observation-opportunity calculations are normally scoped to this defined region." },
+  { term: "AOI Coverage %", body: "The percentage of the AOI analysis grid that has been passed over by at least one satellite's sensor footprint during the simulation window. It measures whether an area has been reached at all, not how frequently it is revisited." },
+  { term: "Avg Contact Duration", body: "The average length of all real RF ground-station contact events recorded during the run. Individual contacts can be shorter or longer depending on the spacecraft's elevation and geometry." },
+  { term: "Cloud Cover %", body: "The estimated share of the observation footprint obscured by cloud. Higher cloud cover can make an optical acquisition unusable." },
+  { term: "Configuration (Planes x Sats/Plane)", body: "The arrangement of the constellation expressed as the number of orbital planes multiplied by the number of satellites in each plane. It describes how the fleet is distributed around its orbital shell." },
+  { term: "Constellation Name", body: "The mission or constellation name configured for the simulation run. It identifies which mission configuration produced the displayed results." },
+  { term: "Contact Duration", body: "The length of time a valid communication link exists between a spacecraft and a ground station during an individual contact event." },
+  { term: "Duty Cycle", body: "The percentage of a satellite's sampled timeline during which its sensor footprint is actively observing the mission's AOI. It shows how much of the satellite's orbit is spent usefully observing the target region." },
+  { term: "Eclipse Duration", body: "The amount of time the spacecraft spends inside Earth's shadow during an orbital passage. During this period, direct sunlight is reduced or unavailable depending on the eclipse type." },
+  { term: "Eclipse Type (Umbra / Penumbra)", body: "Identifies whether the spacecraft is in Earth's full shadow (Umbra) or partial shadow (Penumbra). Umbra means no direct sunlight; Penumbra means only part of the sunlight is blocked." },
+  { term: "Estimated Ground Resolution", body: "The ground distance represented by one pixel in the delivered image product. It describes the resolution of the output image rather than necessarily the native resolution of the instrument." },
+  { term: "Estimated Scenes Captured", body: "An estimate of how many nominal image-sized scenes the fleet's continuous imaging strips represent. It is a reporting estimate rather than a count of discrete photographs actually taken by a pushbroom sensor." },
+  { term: "Footprint Alignment", body: "Indicates whether the simulated observation and the real Earth reference image cover the same ground area with the same orientation and scale. In this application, the two images are constructed from the same geographic window." },
+  { term: "Global Coverage", body: "Despite its name, this dashboard value represents the share of fleet time during which at least one satellite is observing the AOI. It is a time-based observation duty measure, not a percentage of global land area covered." },
+  { term: "Ground Swath", body: "The width of the strip of Earth's surface visible to the camera sensor at a given moment or during a pass. A wider swath observes more ground per pass, while the associated geometry affects achievable resolution." },
+  { term: "Ground Track", body: "The path traced on Earth's surface directly beneath a satellite as it travels along its orbit. It shows which regions the spacecraft actually overflies and when." },
+  { term: "Ground Tracks / Day", body: "The combined number of globe-crossing orbital passes made by the operational fleet in a 24-hour period. It is a fleet-wide transit count rather than the number produced by one satellite." },
+  { term: "GSD (Ground Sample Distance)", body: "The ground distance represented by one pixel in the captured image. A smaller GSD means each pixel represents a smaller area and therefore provides finer spatial detail." },
+  { term: "Image Quality Score", body: "A 0-100 indicator of the expected usability of an observation. It combines factors such as data completeness, cloud-free coverage, sharpness, dynamic range, saturation and exposure." },
+  { term: "Imaged Area (Fleet-Effort)", body: "The total ground area swept by the fleet's sensor footprints while observing the AOI, summed across satellites. It measures total imaging effort, not unique land area, so overlapping observations can be counted more than once." },
+  { term: "Imaged Distance", body: "The total along-track ground distance swept by the fleet's sensors while actively observing the AOI. It represents the distance actually covered during observation rather than the spacecraft's complete orbital path." },
+  { term: "Images / Day", body: "The estimated number of scenes captured by the fleet per day, calculated from the estimated scene count over the loaded analysis period." },
+  { term: "Inclination", body: "The tilt of the orbital plane relative to Earth's equator. It determines approximately which latitudes the constellation can pass over." },
+  { term: "Instantaneous Geodetic Altitude", body: "The spacecraft's actual height above the reference Earth ellipsoid at a particular moment in its orbit. Unlike nominal altitude, it changes continuously as the spacecraft moves." },
+  { term: "Insufficient Data (grid cell)", body: "An AOI grid cell where fewer than two real satellite passes were recorded, meaning a meaningful revisit gap cannot be calculated. These cells are excluded from aggregate revisit and gap statistics." },
+  { term: "Land-Cover Similarity", body: "A measure of how closely the simulated image's land-cover composition matches the real reference scene, across categories such as water, vegetation, bare ground, urban areas and cloud." },
+  { term: "Largest Gap", body: "The single longest observation gap found among the AOI grid cells with sufficient data. It represents the most extreme period during which the constellation leaves a location without another pass." },
+  { term: "Maximum Gap", body: "The largest value in the application's pooled cell-level gap analysis. On this dashboard it uses the same underlying calculation as Largest Gap, so the two cards are expected to show the same value." },
+  { term: "Maximum Revisit Time", body: "The longest interval between two consecutive satellite passes over the same AOI grid cell, with observations from all satellites pooled together. It represents the worst re-observation latency found anywhere in the AOI." },
+  { term: "Mean Gap", body: "The average of the cell-level average and maximum revisit values combined across all data-bearing cells. It is a different calculation from Mean Revisit Time, even though the names are similar." },
+  { term: "Mean Revisit Time", body: "The average interval between consecutive passes over sampled AOI locations, with passes from all satellites combined into a single fleet-wide timeline. It represents the constellation's average re-observation interval." },
+  { term: "Median Gap", body: "The midpoint of the pooled cell-level gap values used for the Gap analysis. Half of those values are below this point and half are above it, making it less sensitive to extreme outliers than the mean." },
+  { term: "Median Revisit Time (P50)", body: "The middle value of all pooled pass-to-pass revisit intervals across the sampled AOI. Half of the revisit intervals are shorter and half are longer than this value." },
+  { term: "Minimum Elevation Angle", body: "The minimum elevation a spacecraft must reach above a ground station's horizon before a communication contact is considered valid. A lower mask angle generally permits longer contact windows." },
+  { term: "Minimum Revisit Time", body: "The shortest interval between two consecutive satellite passes over the same AOI grid cell. It represents the fastest re-observation achieved by the fleet anywhere in the analysed AOI." },
+  { term: "Mission Elapsed Time (MET)", body: "The time elapsed since the beginning of the simulated mission timeline. It provides a mission-relative clock for referencing events without using absolute UTC time." },
+  { term: "Nominal Orbit Altitude", body: "The fixed design altitude configured for the constellation's orbit. It is the reference altitude against which the spacecraft's actual propagated altitude can be compared." },
+  { term: "Observation Geometry", body: "The sensor's viewing geometry relative to the ground at acquisition, such as looking directly downward (nadir) or at an angle (off-nadir). Off-nadir viewing can increase ground reach while affecting resolution and atmospheric path length." },
+  { term: "Observation Opportunity", body: "A period during which the spacecraft's sensor satisfies the conditions required to observe the AOI. These windows form the basis for imaging planning and observation-duration calculations." },
+  { term: "Operational Satellites", body: "The number of distinct satellites detected in the State Report telemetry for the simulation run. In this application it is a telemetry-detected count, rather than a separate spacecraft health or activation assessment." },
+  { term: "Orbital Period", body: "The time required for a satellite to complete one full revolution around Earth. Lower orbital altitudes generally produce shorter periods and more revolutions per day." },
+  { term: "Orbital Plane", body: "A distinct orbital path and orientation around Earth shared by satellites assigned to that plane. Multiple planes distribute the constellation across different orbital orientations." },
+  { term: "Overall Validation Confidence", body: "A 0-100 indicator combining coordinate validity, footprint alignment, land-cover similarity and image quality into one summary measure. It is a simulation-validation indicator, not a measured real-world spacecraft performance result." },
+  { term: "RAAN (Right Ascension of Ascending Node)", body: "The angle locating the point where an orbit crosses Earth's equator while travelling northward. Together with inclination, it defines the orientation of the orbital plane." },
+  { term: "Requirement Satisfied", body: "The percentage of data-bearing AOI grid cells whose average revisit time meets the mission's stated revisit requirement. It shows how much of the analysed area satisfies the target, rather than declaring the entire mission a pass or fail." },
+  { term: "Revisit Time Frequency Distribution", body: "A histogram showing how frequently different revisit-gap durations occur across the sampled AOI. It reveals the shape of the revisit distribution rather than reducing it to a single KPI." },
+  { term: "RF Contacts / Day", body: "The number of real RF ground-station contact events recorded by the fleet per day. It indicates how frequently opportunities occur to communicate with the spacecraft, but not how long each contact lasts." },
+  { term: "Samples", body: "The number of state-telemetry rows recorded for a satellite during the loaded analysis window. It is a data-count measure used partly as a telemetry completeness check." },
+  { term: "Satellite Coverage Contribution", body: "The share of the fleet's total observed AOI time attributable to a particular satellite. It shows how much of the constellation's observation work is being contributed by each spacecraft." },
+  { term: "Simulated Atmosphere", body: "A modelled atmospheric layer applied between the Earth's surface and the sensor, representing wavelength-dependent scattering and transmission loss. It approximates what a real sensor could observe at the top of the atmosphere." },
+  { term: "Spectral Band Proxy", body: "The wavelength and bandwidth used to represent each modelled spectral band, based on the source sensor's published specifications. It is a proxy for the data being processed, not a demonstrated specification of the simulated spacecraft sensor." },
+  { term: "Sun Elevation", body: "The angle of the Sun above the horizon at the observation location and simulated capture time. It describes the illumination conditions during a potential observation." },
+  { term: "Temporal Gap Duration Breakdown", body: "A breakdown showing how many data-bearing AOI grid cells fall into different average-revisit bands, such as less than 30 minutes, 30-60 minutes, 1-2 hours and more than 2 hours." },
+  { term: "Total Satellites (Configured)", body: "The number of satellites the mission is configured to fly, determined from the constellation's planes and satellites-per-plane configuration. It is the designed fleet size, not a telemetry-derived count." },
+  { term: "Usable Image %", body: "The percentage of the image frame backed by valid real source imagery rather than empty areas. It indicates how much of the displayed product represents an actual observation; gaps are reported rather than filled with invented ground data." },
+];
+
+export function DashboardGuideView() {
+  const [termQuery, setTermQuery] = React.useState("");
+  const filteredTerms = termQuery.trim()
+    ? PLAIN_TERMS.filter((t) => `${t.term} ${t.body}`.toLowerCase().includes(termQuery.trim().toLowerCase()))
+    : PLAIN_TERMS;
 
   return (
     <div className="contentGrid">
-      <Panel index={0} title="How to Read This Dashboard" sub="A plain-language walkthrough of every core concept used across this application, so it can be understood without an explainer." className="wide">
+      <Panel index={0} title="What We Know" sub="A plain-language walkthrough of every core concept used across this application, so it can be understood without an explainer." className="wide">
         <div className="guideProse">
           {GUIDE_SECTIONS.map((s) => (
             <div key={s.title} className="guideProseRow">
@@ -1769,49 +1835,32 @@ export function DashboardGuideView({ glossaryMap = {} }) {
         </div>
       </Panel>
 
+
       <Panel
         index={1}
-        title="Parameter Glossary"
-        sub={terms.length ? `${terms.length} defined parameters — name, definition, unit, data source, calculation method and engineering significance for every metric shown in this application.` : "Loading glossary…"}
+        title="Parameters Insight"
+        sub={`${PLAIN_TERMS.length} terms explained without jargon - the same vocabulary as the glossary above, restated for readers who do not need the unit, source and formula detail.`}
         className="wide"
       >
         <label className="icSearch" style={{ marginBottom: 12 }}>
           <Compass size={15} />
           <input
-            value={query}
-            placeholder="Search parameters (e.g. revisit, contact, eclipse)…"
-            onChange={(e) => setQuery(e.target.value)}
+            value={termQuery}
+            placeholder="Search terms (e.g. swath, duty cycle, umbra)..."
+            onChange={(e) => setTermQuery(e.target.value)}
           />
         </label>
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Parameter</th>
-                <th>Definition</th>
-                <th>Unit</th>
-                <th>Source</th>
-                <th>Calculation</th>
-                <th>Engineering Significance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t) => (
-                <tr key={t.key}>
-                  <td className="fontBold">{t.name}</td>
-                  <td>{t.definition}</td>
-                  <td className="mono">{t.unit || "—"}</td>
-                  <td className="textDim">{t.source}</td>
-                  <td className="textDim">{t.calculation}</td>
-                  <td className="textDim">{t.significance}</td>
-                </tr>
-              ))}
-              {!filtered.length ? (
-                <tr><td colSpan={6} className="icMuted">No parameters match "{query}".</td></tr>
-              ) : null}
-            </tbody>
-          </table>
+        <div className="guideProse">
+          {filteredTerms.map((t) => (
+            <div key={t.term} className="guideProseRow">
+              <h4>{t.term}</h4>
+              <p>{t.body}</p>
+            </div>
+          ))}
         </div>
+        {!filteredTerms.length ? (
+          <p className="icMuted">No terms match "{termQuery}".</p>
+        ) : null}
       </Panel>
     </div>
   );
