@@ -44,12 +44,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application code and the mission data the analytics actually need.
 COPY api.py api_image_center.py serve.py ./
 COPY core ./core
-COPY config ./config
-# Includes each mission's raw/state/StateReport.txt. There used to be a
-# separate `COPY StateReport.txt ./` for a copy that sat at the repo root,
-# back when the 6x8 mission had no raw/state/ folder of its own. That file is
-# gone now that the mission owns its report, and the stray COPY failed the
-# build outright ("/StateReport.txt": not found).
+# There is deliberately no `COPY config ./config`, and no `COPY StateReport.txt`.
+# Both pointed at paths that no longer exist in a fresh clone and failed the
+# build outright. config/ now holds only the two secrets excluded above, so git
+# has nothing left to track there and drops the empty directory;
+# core.access_control recreates it via mkdir(parents=True) on first run. The
+# mission workbooks and every StateReport.txt live under data/ and come in here.
 COPY data ./data
 
 # The UI built in stage 1.
