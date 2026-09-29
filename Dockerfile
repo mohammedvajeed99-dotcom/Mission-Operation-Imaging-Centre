@@ -45,8 +45,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api.py api_image_center.py serve.py ./
 COPY core ./core
 COPY config ./config
+# Includes each mission's raw/state/StateReport.txt. There used to be a
+# separate `COPY StateReport.txt ./` for a copy that sat at the repo root,
+# back when the 6x8 mission had no raw/state/ folder of its own. That file is
+# gone now that the mission owns its report, and the stray COPY failed the
+# build outright ("/StateReport.txt": not found).
 COPY data ./data
-COPY StateReport.txt ./
 
 # The UI built in stage 1.
 COPY --from=ui /build/dist ./dist
